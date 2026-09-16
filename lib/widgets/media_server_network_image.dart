@@ -182,7 +182,7 @@ class MediaServerAwareNetworkImage extends StatelessWidget {
       );
     }
     return Image.network(
-      url,
+      NetworkSettings.applyImageProxy(url),
       width: width,
       height: height,
       fit: fit,
@@ -229,7 +229,7 @@ class MediaServerAwareCachedNetworkImage extends StatelessWidget {
       );
     }
     return CachedNetworkImage(
-      imageUrl: imageUrl,
+      imageUrl: NetworkSettings.applyImageProxy(imageUrl),
       width: width,
       height: height,
       fit: fit,

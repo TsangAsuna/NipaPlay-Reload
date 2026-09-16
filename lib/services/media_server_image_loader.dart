@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:nipaplay/services/dandanplay_http_client.dart' as http;
 import 'package:nipaplay/services/media_server_transport.dart';
 import 'package:nipaplay/services/web_remote_access_service.dart';
+import 'package:nipaplay/utils/network_settings.dart';
 
 final Map<String, Uri> _mediaServerBaseUris = {};
 
@@ -54,7 +55,8 @@ bool _sameOrigin(Uri left, Uri right) {
 }
 
 Future<Uint8List> loadNetworkImageBytes(Uri originalUri) async {
-  final requestUri = WebRemoteAccessService.proxyUri(originalUri);
+  final proxied = Uri.parse(NetworkSettings.applyImageProxy(originalUri.toString()));
+  final requestUri = WebRemoteAccessService.proxyUri(proxied);
   if (isMediaServerImageUri(originalUri)) {
     return loadMediaServerImage(requestUri);
   }

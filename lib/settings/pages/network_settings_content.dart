@@ -40,9 +40,11 @@ class _NetworkSettingsContentState extends State<NetworkSettingsContent> {
 
   String _currentServer = '';
   String _currentBangumiServer = '';
+  String _currentImageProxy = '';
   bool _isLoading = true;
   bool _isSavingCustom = false;
   bool _isSavingBangumiCustom = false;
+  bool _isSavingImageProxy = false;
 
   @override
   void initState() {
@@ -100,6 +102,19 @@ class _NetworkSettingsContentState extends State<NetworkSettingsContent> {
               phoneIcon: cupertino.CupertinoIcons.book,
               enabled: !_isSavingBangumiCustom,
               onTap: _editBangumiServer,
+            ),
+            AdaptiveSettingsTile<void>.card(
+              title: _text(
+                context,
+                '图片反代地址',
+                '圖片反代地址',
+                'Image Proxy Server',
+              ),
+              subtitle: _imageProxySubtitle(context),
+              icon: Ionicons.image_outline,
+              phoneIcon: cupertino.CupertinoIcons.photo,
+              enabled: !_isSavingImageProxy,
+              onTap: _editImageProxy,
             ),
           ],
         ),
@@ -203,10 +218,12 @@ class _NetworkSettingsContentState extends State<NetworkSettingsContent> {
   Future<void> _loadCurrentServer() async {
     final server = await NetworkSettings.getDandanplayServer();
     final bangumiServer = await NetworkSettings.getBangumiServer();
+    final imageProxy = await NetworkSettings.getImageProxyServer();
     if (!mounted) return;
     setState(() {
       _currentServer = server;
       _currentBangumiServer = bangumiServer;
+      _currentImageProxy = imageProxy;
       _isLoading = false;
     });
   }
@@ -412,6 +429,59 @@ class _NetworkSettingsContentState extends State<NetworkSettingsContent> {
       if (mounted) {
         setState(() {
           _isSavingBangumiCustom = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _editImageProxy() async {
+    final title = _text(
+      context,
+      '图片反代地址',
+      '圖片反代地址',
+      'Image Proxy Server',
+    );
+    final inputHint = _text(
+      context,
+      '输入图片反代服务器地址（如 https://imgproxy.example.com），留空不使用。所有网络图片将以 前缀+完整URL 的方式加载。',
+      '輸入圖片反代伺服器地址（如 https://imgproxy.example.com），留空不使用。所有網路圖片將以 前綴+完整URL 的方式載入。',
+      'Enter an image proxy base URL (e.g. https://imgproxy.example.com). Leave empty to disable. Images load as prefix + full URL.',
+    );
+    final input = await _showServerInputDialog(
+      title: title,
+      message: inputHint,
+      initialValue: _currentImageProxy,
+    );
+    if (!mounted) return;
+    if (input == null) return;
+    if (input.isNotEmpty && !NetworkSettings.isValidServerUrl(input)) {
+      AdaptiveSnackBar.show(
+        context,
+        message: context.l10n.invalidServerAddress,
+        type: AdaptiveSnackBarType.error,
+      );
+      return;
+    }
+    setState(() {
+      _isSavingImageProxy = true;
+    });
+    try {
+      await NetworkSettings.setImageProxyServer(input);
+      final proxy = await NetworkSettings.getImageProxyServer();
+      if (!mounted) return;
+      setState(() {
+        _currentImageProxy = proxy;
+      });
+      AdaptiveSnackBar.show(
+        context,
+        message: _text(context, '图片反代设置已更新', '圖片反代設置已更新',
+            'Image proxy setting updated.'),
+        type: AdaptiveSnackBarType.success,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSavingImageProxy = false;
         });
       }
     }
@@ -748,6 +818,14 @@ class _NetworkSettingsContentState extends State<NetworkSettingsContent> {
     return '弹弹play: ${_statusText(context, _connectivity.dandanplayAvailable)}\n'
         'Bangumi: ${_statusText(context, _connectivity.bangumiAvailable)}\n'
         '$checkingText';
+  }
+
+  String _imageProxySubtitle(BuildContext context) {
+    if (_currentImageProxy.isNotEmpty) {
+      return _currentImageProxy;
+    }
+    return _text(context, '未启用（直连加载图片）', '未啟用（直連載入圖片）',
+        'Disabled (images load directly)');
   }
 
   String _bangumiSubtitle(BuildContext context) {

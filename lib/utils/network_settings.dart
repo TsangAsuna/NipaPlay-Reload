@@ -4,6 +4,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 class NetworkSettings {
   static const String _dandanplayServerKey = 'dandanplay_server_url';
   static const String _bangumiServerKey = 'bangumi_server_url';
+  static const String _imageProxyServerKey = 'image_proxy_server_url';
+
+  /// 图片反代地址（如 https://imgproxy.example.com/）。
+  /// 直连不了图片 CDN（bgm.tv 图床等）时可强制走该前缀。
+  static const String _imageProxyDefault = '';
 
   // 官方发行版统一通过 NipaPlay 网关访问弹弹play。旧地址仅用于迁移
   // 已安装版本保存的偏好，客户端不再持有弹弹play AppSecret。
@@ -61,10 +66,81 @@ class NetworkSettings {
 
   /// 设置 Bangumi 服务器地址
   static Future<void> setBangumiServer(String serverUrl) async {
+    final previous = await getBangumiServer();
     final prefs = await SharedPreferences.getInstance();
     final normalized = _normalizeServerUrl(serverUrl);
     await prefs.setString(_bangumiServerKey, normalized);
     print('[网络设置] Bangumi服务器已切换到: $normalized');
+    if (normalized != previous) {
+      await clearBangumiImageCaches();
+    }
+  }
+
+  /// 清除持久化的番剧图片/详情缓存。
+  /// 换 Bangumi API（或反代）后，旧缓存里保存的图片地址仍指向旧域名，
+  /// 不清掉就会一直加载失败——这是"改了服务器图片仍不加载"的根因。
+  static Future<void> clearBangumiImageCaches() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stale = prefs.getKeys()
+        .where((k) =>
+            k.startsWith('media_library_image_url_') ||
+            k.startsWith('bangumi_detail_'))
+        .toList();
+    for (final key in stale) {
+      await prefs.remove(key);
+    }
+    print('[网络设置] 已清除 ${stale.length} 条番剧图片缓存');
+  }
+
+  // ---- 图片反代 ----
+
+  static String _cachedImageProxyPrefix = _imageProxyDefault;
+
+  /// 启动时调用一次，让同步的 build 代码也能应用反代前缀
+  static Future<void> preloadImageProxyServer() async {
+    final prefs = await SharedPreferences.getInstance();
+    _cachedImageProxyPrefix = _normalizeProxyPrefix(
+        prefs.getString(_imageProxyServerKey) ?? _imageProxyDefault);
+  }
+
+  static Future<String> getImageProxyServer() async {
+    final prefs = await SharedPreferences.getInstance();
+    _cachedImageProxyPrefix = _normalizeProxyPrefix(
+        prefs.getString(_imageProxyServerKey) ?? _imageProxyDefault);
+    return _cachedImageProxyPrefix;
+  }
+
+  static Future<void> setImageProxyServer(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    final normalized = url.trim().isEmpty ? '' : _normalizeProxyPrefix(url);
+    if (normalized.isEmpty) {
+      await prefs.remove(_imageProxyServerKey);
+    } else {
+      await prefs.setString(_imageProxyServerKey, normalized);
+    }
+    _cachedImageProxyPrefix = normalized;
+    print('[网络设置] 图片反代已切换到: '
+        '${normalized.isEmpty ? '(已关闭)' : normalized}');
+  }
+
+  /// 给图片 URL 加反代前缀（前缀 + 完整 URL，兼容 imgproxy/GH-proxy 类服务）。
+  /// 同步返回，供 build 里的 Image.network 直接使用。
+  static String applyImageProxy(String url) {
+    final prefix = _cachedImageProxyPrefix;
+    if (prefix.isEmpty || url.isEmpty) return url;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) return url;
+    if (url.startsWith(prefix)) return url;
+    return '$prefix$url';
+  }
+
+  static String _normalizeProxyPrefix(String url) {
+    var value = url.trim();
+    if (value.isEmpty) return '';
+    if (!value.startsWith('http://') && !value.startsWith('https://')) {
+      value = 'https://$value';
+    }
+    if (!value.endsWith('/')) value = '$value/';
+    return value;
   }
 
   /// 检查当前 Bangumi 服务器是否为自定义服务器
@@ -84,7 +160,11 @@ class NetworkSettings {
   /// 重置Bangumi为默认服务器
   static Future<void> resetBangumiServer() async {
     final prefs = await SharedPreferences.getInstance();
+    final had = prefs.containsKey(_bangumiServerKey);
     await prefs.remove(_bangumiServerKey);
+    if (had) {
+      await clearBangumiImageCaches();
+    }
     print('[网络设置] Bangumi服务器已重置为默认: $bangumiDefaultServer');
   }
 

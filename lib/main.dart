@@ -18,6 +18,7 @@ import 'package:nipaplay/app/unified_app_view_presenter.dart';
 import 'package:nipaplay/app/unified_app_pages.dart';
 import 'package:nipaplay/pages/tab_labels.dart';
 import 'package:nipaplay/utils/globals.dart' as globals;
+import 'package:nipaplay/utils/network_settings.dart';
 import 'package:nipaplay/utils/theme_notifier.dart';
 import 'package:nipaplay/utils/system_resource_monitor.dart';
 import 'package:nipaplay/themes/nipaplay/widgets/custom_scaffold.dart';
@@ -213,6 +214,9 @@ void main(List<String> args) async {
   }
 
   WatchHistoryDatabase.ensureInitialized();
+
+  // 预加载图片反代设置（build 里同步使用）
+  await NetworkSettings.preloadImageProxyServer();
 
   // 初始化远程控制访问保护服务
   await RemoteControlAccessGuardService.instance.loadTrustedDevices();

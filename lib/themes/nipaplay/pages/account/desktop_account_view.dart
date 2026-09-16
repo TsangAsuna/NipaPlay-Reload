@@ -7,6 +7,7 @@ import 'package:nipaplay/themes/nipaplay/widgets/blur_button.dart';
 import 'package:nipaplay/themes/nipaplay/widgets/large_screen_mode_scope.dart';
 import 'package:nipaplay/themes/nipaplay/widgets/large_screen_page_scaffold.dart';
 import 'package:nipaplay/utils/app_accent_color.dart';
+import 'package:nipaplay/utils/network_settings.dart';
 import 'package:nipaplay/utils/globals.dart' as globals;
 
 class DesktopAccountView extends StatelessWidget {
@@ -564,7 +565,7 @@ class _DesktopAvatar extends StatelessWidget {
       child: avatarUrl == null
           ? fallback
           : Image.network(
-              avatarUrl!,
+              NetworkSettings.applyImageProxy(avatarUrl!),
               width: 56,
               height: 56,
               fit: BoxFit.cover,

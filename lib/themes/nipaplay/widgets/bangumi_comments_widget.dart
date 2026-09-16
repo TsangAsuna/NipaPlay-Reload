@@ -6,6 +6,7 @@ import 'package:nipaplay/services/bangumi_api_service.dart';
 import 'package:nipaplay/services/server_connectivity_service.dart';
 import 'package:nipaplay/themes/nipaplay/widgets/hover_scale_text_button.dart';
 import 'package:nipaplay/utils/app_accent_color.dart';
+import 'package:nipaplay/utils/network_settings.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:nipaplay/services/web_remote_access_service.dart';
 
@@ -262,7 +263,7 @@ class _BangumiCommentsWidgetState extends State<BangumiCommentsWidget> {
     if (kIsWeb) {
       return WebRemoteAccessService.imageProxyUrl(url) ?? url;
     }
-    return url;
+    return NetworkSettings.applyImageProxy(url);
   }
 
   Widget _buildMiniStars(int rate, Color accentColor, Color mutedColor) {

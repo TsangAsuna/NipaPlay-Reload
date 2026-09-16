@@ -118,7 +118,7 @@ extension DashboardHomePageImageHelpers on _DashboardHomePageState {
         headers: {
           'User-Agent': 'NipaPlay/1.0',
         },
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(const Duration(seconds: 12)); // 反代首次回源/CF 冷启动较慢，放宽防首屏丢图
 
       if (response.statusCode == 302) {
         // Bangumi API返回302重定向到实际图片URL
@@ -300,8 +300,10 @@ extension DashboardHomePageImageHelpers on _DashboardHomePageState {
         // 如果获取到了更好的图片或信息，创建升级版本
         final normalizedHighQualityUrl =
             _normalizeRecommendationImageUrl(highQualityImageUrl);
-        if (normalizedHighQualityUrl != currentItem.backgroundImageUrl ||
-            detailedSubtitle != currentItem.subtitle) {
+        // 仅当拿到有效高清 URL 才覆盖图片；否则保留原图（首屏并发反代超时时不会变灰）
+        if (normalizedHighQualityUrl != null &&
+            (normalizedHighQualityUrl != currentItem.backgroundImageUrl ||
+                detailedSubtitle != currentItem.subtitle)) {
           upgradedItem = currentItem.copyWith(
             subtitle: detailedSubtitle,
             backgroundImageUrl: normalizedHighQualityUrl,
@@ -525,9 +527,9 @@ extension DashboardHomePageImageHelpers on _DashboardHomePageState {
       final response = await http
           .head(WebRemoteAccessService.proxyUri(Uri.parse(url)))
           .timeout(
-            const Duration(seconds: 2),
+            const Duration(seconds: 8),
             onTimeout: () =>
-                throw TimeoutException('图片验证超时', const Duration(seconds: 2)),
+                throw TimeoutException('图片验证超时', const Duration(seconds: 8)),
           );
 
       if (response.statusCode != 200) return false;

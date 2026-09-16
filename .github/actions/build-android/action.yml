@@ -227,8 +227,19 @@ runs:
         echo "检查构建输出目录："
         ls -la build/app/outputs/flutter-apk/
 
-        # 创建签名配置文件
-        echo "${{ inputs.signing-key }}" | base64 -d > keystore.jks
+        # 创建签名配置文件（fork 无 secrets 时退化为 debug keystore）
+        KS_ARGS=()
+        if [ -n "${{ inputs.signing-key }}" ]; then
+          echo "${{ inputs.signing-key }}" | base64 -d > keystore.jks
+          KS_ARGS=(--ks keystore.jks --ks-pass pass:${{ inputs.keystore-password }} --ks-key-alias ${{ inputs.key-alias }} --key-pass pass:${{ inputs.key-password }})
+        else
+          echo "signing-key 为空，使用 debug keystore 签名"
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US" -keystore "$HOME/.android/debug.keystore" 2>/dev/null || true
+          fi
+          KS_ARGS=(--ks "$HOME/.android/debug.keystore" --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android)
+        fi
 
         # 确保输出目录存在
         mkdir -p "build/app/outputs/apk/release"
@@ -306,10 +317,7 @@ runs:
 
           # 使用apksigner对APK进行签名
           $ANDROID_HOME/build-tools/29.0.3/apksigner sign \
-            --ks keystore.jks \
-            --ks-pass pass:${{ inputs.keystore-password }} \
-            --ks-key-alias ${{ inputs.key-alias }} \
-            --key-pass pass:${{ inputs.key-password }} \
+            "${KS_ARGS[@]}" \
             --out "$output_apk" \
             "$temp_aligned"
 
@@ -324,8 +332,10 @@ runs:
           echo "✅ ${arch} APK签名完成: $output_apk"
         done
 
-        # 删除keystore
-        rm -f keystore.jks
+        # 删除keystore（仅自建临时 jks 时）
+        if [ -n "${{ inputs.signing-key }}" ]; then
+          rm -f keystore.jks
+        fi
 
         # 验证最终的APK文件
         echo "=== 最终APK文件列表 ==="

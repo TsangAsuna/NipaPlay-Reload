@@ -70,6 +70,7 @@ class NetworkSettings {
     final prefs = await SharedPreferences.getInstance();
     final normalized = _normalizeServerUrl(serverUrl);
     await prefs.setString(_bangumiServerKey, normalized);
+    _cachedBangumiServer = normalized;
     print('[网络设置] Bangumi服务器已切换到: $normalized');
     if (normalized != previous) {
       await clearBangumiImageCaches();
@@ -95,12 +96,15 @@ class NetworkSettings {
   // ---- 图片反代 ----
 
   static String _cachedImageProxyPrefix = _imageProxyDefault;
+  static String _cachedBangumiServer = bangumiDefaultServer;
 
   /// 启动时调用一次，让同步的 build 代码也能应用反代前缀
   static Future<void> preloadImageProxyServer() async {
     final prefs = await SharedPreferences.getInstance();
     _cachedImageProxyPrefix = _normalizeProxyPrefix(
         prefs.getString(_imageProxyServerKey) ?? _imageProxyDefault);
+    _cachedBangumiServer = _normalizeServerUrl(
+        prefs.getString(_bangumiServerKey) ?? bangumiDefaultServer);
   }
 
   static Future<String> getImageProxyServer() async {
@@ -123,13 +127,41 @@ class NetworkSettings {
         '${normalized.isEmpty ? '(已关闭)' : normalized}');
   }
 
-  /// 给图片 URL 加反代前缀（前缀 + 完整 URL，兼容 imgproxy/GH-proxy 类服务）。
+  /// 给图片 URL 加反代前缀。
+  /// 两种反代风格都支持：
+  /// - 根路径前缀（如 https://imgproxy.example.com/）：前缀 + 完整 URL（imgproxy/GH-proxy 类）。
+  /// - 带子路径前缀（如 https://proxy.example.com/img/）：替换主机，保留源 path+query（bgm-proxy / bangumi-proxy-workers 类）。
   /// 同步返回，供 build 里的 Image.network 直接使用。
   static String applyImageProxy(String url) {
     final prefix = _cachedImageProxyPrefix;
     if (prefix.isEmpty || url.isEmpty) return url;
     if (!url.startsWith('http://') && !url.startsWith('https://')) return url;
     if (url.startsWith(prefix)) return url;
+    final prefixUri = Uri.tryParse(prefix);
+    final srcUri = Uri.tryParse(url);
+    if (srcUri != null) {
+      // 官方域名的残留 URL（旧版本直连缓存）→ 用当前 bangumi server 替换 host，走反代
+      if (srcUri.host == 'api.bgm.tv' || srcUri.host == 'next.bgm.tv') {
+        final server = _cachedBangumiServer;
+        if (server.isNotEmpty && server != bangumiDefaultServer) {
+          final srvBase = server.endsWith('/')
+              ? server.substring(0, server.length - 1)
+              : server;
+          return '$srvBase${srcUri.path}${srcUri.hasQuery ? '?${srcUri.query}' : ''}';
+        }
+      }
+      // 已是反代域名自身的 URL（如 API 反代返回的图片地址）不再套前缀，避免嵌套
+      if (prefixUri != null && prefixUri.host == srcUri.host) {
+        return url;
+      }
+    }
+    if (prefixUri != null && srcUri != null &&
+        prefixUri.path.isNotEmpty && prefixUri.path != '/') {
+      // 带子路径前缀：把源 URL 的主机替换为反代前缀，保留 path + query
+      final base =
+          prefix.endsWith('/') ? prefix.substring(0, prefix.length - 1) : prefix;
+      return '$base${srcUri.path}${srcUri.hasQuery ? '?${srcUri.query}' : ''}';
+    }
     return '$prefix$url';
   }
 
@@ -162,6 +194,7 @@ class NetworkSettings {
     final prefs = await SharedPreferences.getInstance();
     final had = prefs.containsKey(_bangumiServerKey);
     await prefs.remove(_bangumiServerKey);
+    _cachedBangumiServer = bangumiDefaultServer;
     if (had) {
       await clearBangumiImageCaches();
     }

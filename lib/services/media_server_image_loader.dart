@@ -61,14 +61,29 @@ Future<Uint8List> loadNetworkImageBytes(Uri originalUri) async {
     return loadMediaServerImage(requestUri);
   }
 
-  final response = await http.get(requestUri);
-  if (response.statusCode != 200) {
-    throw http.ClientException(
-      'Image request failed: HTTP ${response.statusCode}',
-      requestUri,
-    );
+  try {
+    final response = await http.get(requestUri);
+    if (response.statusCode != 200) {
+      throw http.ClientException(
+        'Image request failed: HTTP ${response.statusCode}',
+        requestUri,
+      );
+    }
+    return response.bodyBytes;
+  } catch (_) {
+    // 反代失败时回退原始 URL，尽量用上原有缓存/直连
+    if (requestUri != originalUri) {
+      final fallback = await http.get(originalUri);
+      if (fallback.statusCode != 200) {
+        throw http.ClientException(
+          'Image request failed (fallback): HTTP ${fallback.statusCode}',
+          originalUri,
+        );
+      }
+      return fallback.bodyBytes;
+    }
+    rethrow;
   }
-  return response.bodyBytes;
 }
 
 Future<Uint8List> loadMediaServerImage(Uri uri) async {

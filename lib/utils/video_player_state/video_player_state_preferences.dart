@@ -2041,6 +2041,26 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     _notifyListeners();
   }
 
+  /// 清空 subtitle_fonts 字体缓存目录并重置字体设置（导入/远程下载的字体全删）。
+  Future<void> clearSubtitleFontCache() async {
+    try {
+      final baseDir = await StorageService.getAppStorageDirectory();
+      final fontsDir = Directory(p.join(baseDir.path, 'subtitle_fonts'));
+      if (await fontsDir.exists()) {
+        await fontsDir.delete(recursive: true);
+      }
+      _subtitleFontDir = '';
+      _subtitleFontName = '';
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_subtitleFontDirKey, '');
+      await prefs.setString(_subtitleFontNameKey, '');
+      await applySubtitleStylePreference();
+      _notifyListeners();
+    } catch (e) {
+      debugPrint('[VideoPlayerState] 清除字幕字体缓存失败: $e');
+    }
+  }
+
   Future<void> importSubtitleFontFile(String sourcePath) async {
     if (sourcePath.isEmpty) return;
     try {

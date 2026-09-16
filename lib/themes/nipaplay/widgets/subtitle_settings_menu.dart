@@ -1,4 +1,5 @@
 import 'package:file_selector/file_selector.dart';
+import 'dart:io' as io;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -87,9 +88,18 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
   Future<void> _pickFontFile(VideoPlayerState videoState) async {
     final file = await openFile(
       acceptedTypeGroups: [
-        const XTypeGroup(
+        XTypeGroup(
           label: 'Font',
-          extensions: ['ttf', 'otf', 'ttc'],
+          extensions: const ['ttf', 'otf', 'ttc'],
+          uniformTypeIdentifiers: io.Platform.isIOS
+              ? [
+                  'public.truetype-font',
+                  'public.opentype-font',
+                  'public.font',
+                  'public.data',
+                  'public.item'
+                ]
+              : null,
         ),
       ],
     );
@@ -98,6 +108,35 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
   }
 
   Future<void> _pickFontDirectory(VideoPlayerState videoState) async {
+    // iOS 上 file_selector 的 getDirectoryPath 不受支持，改为多选字体文件
+    if (io.Platform.isIOS) {
+      final files = await openFiles(
+        acceptedTypeGroups: [
+          XTypeGroup(
+            label: 'Font',
+            extensions: const ['ttf', 'otf', 'ttc'],
+            uniformTypeIdentifiers: const [
+              'public.truetype-font',
+              'public.opentype-font',
+              'public.font',
+              'public.data',
+              'public.item'
+            ],
+          ),
+        ],
+      );
+      if (files.isEmpty) return;
+      var count = 0;
+      for (final f in files) {
+        await videoState.importSubtitleFontFile(f.path);
+        count++;
+      }
+      if (!mounted) return;
+      setState(() {
+        _fontImportMessage = '已导入 $count 个字体文件';
+      });
+      return;
+    }
     final directory = await getDirectoryPath();
     if (directory == null) return;
     final count = await videoState.importSubtitleFontDirectory(directory);
@@ -724,6 +763,21 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
                   onTap: () {
                     videoState.setSubtitleFontName('');
                     videoState.setSubtitleFontDir('');
+                  },
+                  expandHorizontally: true,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: BlurButton(
+                  text: '清理字体缓存',
+                  icon: Icons.cleaning_services_outlined,
+                  onTap: () async {
+                    await videoState.clearSubtitleFontCache();
+                    if (!mounted) return;
+                    setState(() {
+                      _fontImportMessage = '已清空字体库（subtitle_fonts 目录）';
+                    });
                   },
                   expandHorizontally: true,
                 ),

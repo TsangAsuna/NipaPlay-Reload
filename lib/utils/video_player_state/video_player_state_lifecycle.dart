@@ -14,11 +14,10 @@ extension VideoPlayerStateLifecycle on VideoPlayerState {
       }
     } else if (state == AppLifecycleState.resumed) {
       // 回前台强制刷新一帧：iOS 切后台后渲染可能没跟上（画面灰/缺失），
-      // 保持暂停状态不变，仅对当前帧做一次同位置 seek 触发渲染。
-      if (_status != PlayerStatus.playing && hasVideo &&
-          _position.inMilliseconds > 0) {
+      // 无论当前播放/暂停都同位置 seek 触发渲染（暂停时保持暂停态不变）。
+      if (hasVideo && _position.inMilliseconds > 0) {
         Future<void>.delayed(const Duration(milliseconds: 200), () {
-          if (_status != PlayerStatus.playing && hasVideo) {
+          if (hasVideo) {
             debugPrint('[VideoPlayerState] 回前台强制刷新画面帧');
             player.seek(position: _position.inMilliseconds);
           }

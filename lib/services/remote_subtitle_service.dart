@@ -21,6 +21,9 @@ sealed class RemoteSubtitleCandidate {
   String get name;
   String get extension;
   String get sourceLabel;
+
+  /// 服务端声明的文件大小（若已知），用于检测远程字幕是否已变化。
+  int? get fileSize => null;
 }
 
 class WebDavRemoteSubtitleCandidate extends RemoteSubtitleCandidate {
@@ -75,11 +78,15 @@ class DandanplayRemoteSubtitleCandidate extends RemoteSubtitleCandidate {
   @override
   final String extension;
 
+  @override
+  final int? fileSize;
+
   const DandanplayRemoteSubtitleCandidate({
     required this.entryId,
     required this.fileName,
     required this.name,
     required this.extension,
+    this.fileSize,
   });
 
   @override
@@ -99,6 +106,9 @@ class SharedRemoteSubtitleCandidate extends RemoteSubtitleCandidate {
   @override
   final String extension;
 
+  @override
+  final int? fileSize;
+
   const SharedRemoteSubtitleCandidate({
     required this.shareId,
     required this.fileName,
@@ -107,6 +117,7 @@ class SharedRemoteSubtitleCandidate extends RemoteSubtitleCandidate {
     required this.isLikelyMatch,
     required this.name,
     required this.extension,
+    this.fileSize,
   });
 
   @override
@@ -266,7 +277,7 @@ class RemoteSubtitleService {
       SmbRemoteSubtitleCandidate() =>
         'smb:${candidate.connection.id}:${candidate.smbPath}',
       DandanplayRemoteSubtitleCandidate() =>
-        'dandanplay:${candidate.entryId}:${candidate.fileName}',
+        'dandanplay:${candidate.entryId}:${candidate.fileName}:${candidate.fileSize ?? ''}',
       SharedRemoteSubtitleCandidate() =>
         'shared:${candidate.subtitleUri.replace(userInfo: '', fragment: '').toString()}',
     };
@@ -277,7 +288,12 @@ class RemoteSubtitleService {
     if (!forceRefresh && await target.exists()) {
       final size = await target.length();
       if (size > 0) {
-        return target.path;
+        // 服务端声明了大小且与缓存不一致 -> 远程字幕已变化，弃用旧缓存
+        final declared = candidate.fileSize;
+        if (declared == null || declared == size) {
+          return target.path;
+        }
+        await target.delete();
       }
     }
 
@@ -534,6 +550,7 @@ class RemoteSubtitleService {
           fileName: name,
           name: name,
           extension: ext,
+          fileSize: item.fileSize,
         ),
       );
     }
@@ -689,12 +706,21 @@ class RemoteSubtitleService {
           isLikelyMatch: map['isLikelyMatch'] == true,
           name: name,
           extension: ext,
+          fileSize: _parseItemFileSize(map),
         ),
       );
     }
 
     candidates.sort((a, b) => a.name.compareTo(b.name));
     return candidates;
+  }
+
+  /// 从字幕 item map 中解析服务端声明的文件大小（jellyfin 等可能返回 size/bytes）。
+  int? _parseItemFileSize(Map<String, dynamic> map) {
+    final raw = map['size'] ?? map['fileSize'] ?? map['bytes'];
+    if (raw is int) return raw;
+    if (raw is String) return int.tryParse(raw.trim());
+    return null;
   }
 
   Future<List<RemoteSubtitleCandidate>> _listSharedRemoteCandidates(
@@ -787,6 +813,7 @@ class RemoteSubtitleService {
           isLikelyMatch: map['isLikelyMatch'] == true,
           name: name,
           extension: ext,
+          fileSize: _parseItemFileSize(map),
         ),
       );
     }

@@ -132,7 +132,6 @@ jobs:
       - Gatekeeper
       - Build-Android
       - Build-iOS
-      - Build-Windows
       - Build-Linux
       - Build-tvOS
     if: needs.Gatekeeper.outputs.triggered == 'true'

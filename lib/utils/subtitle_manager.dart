@@ -492,25 +492,27 @@ class SubtitleManager extends ChangeNotifier {
   bool _shouldFixExternalSubtitleEncoding() =>
       !kIsWeb && (_isMdkKernel() || _isMediaKitKernel());
   bool _shouldRenderExternalSubtitleInApp(String path) {
-    if (kIsWeb || !_isMdkKernel() || !Platform.isWindows) {
-      return false;
-    }
+    if (kIsWeb || !_isMdkKernel()) return false;
 
     final extension = p.extension(path).toLowerCase();
-    return extension == '.ass' || extension == '.ssa' || extension == '.srt';
+    // SRT 无特效，全平台用 App 内叠层渲染：不替换内核字幕轨（可叠加 ASS/多 SRT）
+    if (extension == '.srt') return true;
+    // ASS/SSA 含样式特效，仅 Windows 走叠层（内核无法渲染 ASS 时），其余交给内核
+    return Platform.isWindows &&
+        (extension == '.ass' || extension == '.ssa');
   }
 
   void _activateAppRenderedExternalSubtitle(String path) {
     try {
-      _player.setMedia("", MediaType.subtitle);
+      // SRT 叠层渲染不碰内核字幕轨，保留 ASS/内嵌字幕
+      final extension = p.extension(path).toLowerCase();
+      final isSrtOverlay = extension == '.srt';
+      if (!isSrtOverlay) {
+        _player.setMedia("", MediaType.subtitle);
+        _player.activeSubtitleTracks = [];
+      }
     } catch (e) {
       debugPrint('SubtitleManager: 清理播放器外挂字幕失败: $e');
-    }
-
-    try {
-      _player.activeSubtitleTracks = [];
-    } catch (e) {
-      debugPrint('SubtitleManager: 清理播放器字幕轨失败: $e');
     }
 
     unawaited(preloadSubtitleFile(path));
@@ -1007,6 +1009,11 @@ class SubtitleManager extends ChangeNotifier {
 
             // 设置外部字幕（不标记为手动设置，因为是自动检测的）
             setExternalSubtitle(cachedPath, isManualSetting: false);
+            await _persistExternalSubtitleSelection(
+              videoPath: videoPath,
+              subtitlePath: cachedPath,
+              isActive: true,
+            );
 
             // 后台下载远程字体，完成后重新加载字幕使字体生效
             _prefetchRemoteFontsForSubtitle(videoPath, cachedPath).then((_) {
@@ -1098,6 +1105,13 @@ class SubtitleManager extends ChangeNotifier {
           // 保存这个自动找到的字幕路径，下次可以直接使用
           saveVideoSubtitleMapping(videoPath, potentialPath);
 
+          // 写入 external_subtitles 列表，让字幕轨道菜单能看到
+          await _persistExternalSubtitleSelection(
+            videoPath: videoPath,
+            subtitlePath: potentialPath,
+            isActive: true,
+          );
+
           // 设置完成后强制刷新状态
           await Future.delayed(_autoLoadStateSettleDelay);
 
@@ -1151,6 +1165,13 @@ class SubtitleManager extends ChangeNotifier {
 
             // 保存这个自动找到的字幕路径，下次可以直接使用
             saveVideoSubtitleMapping(videoPath, bestMatchFile.path);
+
+            // 写入 external_subtitles 列表，让字幕轨道菜单能看到
+            await _persistExternalSubtitleSelection(
+              videoPath: videoPath,
+              subtitlePath: bestMatchFile.path,
+              isActive: true,
+            );
 
             // 设置完成后强制刷新状态
             await Future.delayed(_autoLoadStateSettleDelay);

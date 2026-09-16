@@ -2041,6 +2041,29 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     _notifyListeners();
   }
 
+  /// 列出 subtitle_fonts 字体库中的字体文件名（不含扩展名），用于选择字体样式。
+  Future<List<String>> listSubtitleFonts() async {
+    try {
+      final baseDir = await StorageService.getAppStorageDirectory();
+      final fontsDir = Directory(p.join(baseDir.path, 'subtitle_fonts'));
+      if (!await fontsDir.exists()) return const [];
+      final names = <String>[];
+      await for (final entity in fontsDir.list()) {
+        if (entity is File) {
+          final ext = p.extension(entity.path).toLowerCase();
+          if (ext == '.ttf' || ext == '.otf' || ext == '.ttc') {
+            names.add(p.basenameWithoutExtension(entity.path));
+          }
+        }
+      }
+      names.sort();
+      return names;
+    } catch (e) {
+      debugPrint('[VideoPlayerState] 列出字体库失败: $e');
+      return const [];
+    }
+  }
+
   /// 清空 subtitle_fonts 字体缓存目录并重置字体设置（导入/远程下载的字体全删）。
   Future<void> clearSubtitleFontCache() async {
     try {
@@ -2061,7 +2084,8 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     }
   }
 
-  Future<void> importSubtitleFontFile(String sourcePath) async {
+  Future<void> importSubtitleFontFile(String sourcePath,
+      {bool applyName = true}) async {
     if (sourcePath.isEmpty) return;
     try {
       final baseDir = await StorageService.getAppStorageDirectory();
@@ -2071,10 +2095,14 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
       final destPath = p.join(fontsDir.path, fileName);
       await File(sourcePath).copy(destPath);
       _subtitleFontDir = fontsDir.path;
-      _subtitleFontName = p.basenameWithoutExtension(destPath);
+      if (applyName) {
+        _subtitleFontName = p.basenameWithoutExtension(destPath);
+      }
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_subtitleFontDirKey, _subtitleFontDir);
-      await prefs.setString(_subtitleFontNameKey, _subtitleFontName);
+      if (applyName) {
+        await prefs.setString(_subtitleFontNameKey, _subtitleFontName);
+      }
       await applySubtitleStylePreference();
       _notifyListeners();
     } catch (e) {

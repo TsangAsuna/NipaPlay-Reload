@@ -265,51 +265,65 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
         context: context,
         title: '选择远程字幕（可多选）',
         contentWidget: StatefulBuilder(
-          builder: (context, setDialogState) {
+          builder: (dialogContext, setDialogState) {
             return ConstrainedBox(
               constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.6,
+                maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
                 maxWidth: 520,
               ),
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: candidates.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final candidate = candidates[index];
-                  return CheckboxListTile(
-                    value: checked.contains(candidate),
-                    title: Text(candidate.name),
-                    subtitle: Text(candidate.sourceLabel),
-                    controlAffinity: ListTileControlAffinity.leading,
-                    onChanged: (bool? value) {
-                      setDialogState(() {
-                        if (value == true) {
-                          checked.add(candidate);
-                        } else {
-                          checked.remove(candidate);
-                        }
-                      });
-                    },
-                  );
-                },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: candidates.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final candidate = candidates[index];
+                        return CheckboxListTile(
+                          value: checked.contains(candidate),
+                          title: Text(candidate.name),
+                          subtitle: Text(candidate.sourceLabel),
+                          controlAffinity: ListTileControlAffinity.leading,
+                          onChanged: (bool? value) {
+                            setDialogState(() {
+                              if (value == true) {
+                                checked.add(candidate);
+                              } else {
+                                checked.remove(candidate);
+                              }
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      HoverScaleTextButton(
+                        child: const Text('取消'),
+                        onPressed: () =>
+                            Navigator.of(dialogContext).pop(null),
+                      ),
+                      const SizedBox(width: 8),
+                      HoverScaleTextButton(
+                        child: const Text('挂载选中'),
+                        onPressed: () {
+                          final list = checked.toList();
+                          Navigator.of(dialogContext)
+                              .pop(list.isEmpty ? null : list);
+                        },
+                      ),
+                    ],
+                  ),
+                ],
               ),
             );
           },
         ),
-        actions: [
-          HoverScaleTextButton(
-            child: const Text('取消'),
-            onPressed: () => Navigator.of(context).pop(null),
-          ),
-          HoverScaleTextButton(
-            child: const Text('挂载选中'),
-            onPressed: () {
-              final list = checked.toList();
-              Navigator.of(context).pop(list.isEmpty ? null : list);
-            },
-          ),
-        ],
       );
 
       if (selected == null || selected.isEmpty) return;

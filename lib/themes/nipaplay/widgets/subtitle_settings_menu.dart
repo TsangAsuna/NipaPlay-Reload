@@ -45,6 +45,13 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
   bool _subtitleDelayDirty = false;
   double? _subtitleDelayPreviewValue;
   String? _fontImportMessage;
+  Future<List<String>>? _fontLibraryFuture;
+
+  void _refreshFontLibrary() {
+    setState(() {
+      _fontLibraryFuture = null;
+    });
+  }
 
   @override
   void dispose() {
@@ -105,6 +112,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
     );
     if (file == null) return;
     await videoState.importSubtitleFontFile(file.path);
+    if (mounted) _refreshFontLibrary();
   }
 
   Future<void> _pickFontDirectory(VideoPlayerState videoState) async {
@@ -128,13 +136,15 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
       if (files.isEmpty) return;
       var count = 0;
       for (final f in files) {
-        await videoState.importSubtitleFontFile(f.path);
+        // 多选导入：不自动套用当前字体名，让用户从字体库列表自由选择
+        await videoState.importSubtitleFontFile(f.path, applyName: false);
         count++;
       }
       if (!mounted) return;
       setState(() {
         _fontImportMessage = '已导入 $count 个字体文件';
       });
+      _refreshFontLibrary();
       return;
     }
     final directory = await getDirectoryPath();
@@ -150,6 +160,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
         _fontImportMessage = '未在目录中找到字体文件';
       });
     }
+    _refreshFontLibrary();
   }
 
   double _currentSubtitleDelayDisplayValue(VideoPlayerState videoState) {
@@ -732,6 +743,61 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
             onSubmitted: (value) => videoState.setSubtitleFontName(value),
           ),
           const SizedBox(height: 8),
+          FutureBuilder<List<String>>(
+            future: _fontLibraryFuture ??= videoState.listSubtitleFonts(),
+            builder: (context, snapshot) {
+              final fonts = snapshot.data ?? const <String>[];
+              if (fonts.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '字体库（点击应用）',
+                    style: TextStyle(
+                      color: menuColors.disabledForeground,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 140),
+                    child: SingleChildScrollView(
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final name in fonts)
+                            ActionChip(
+                              label: Text(
+                                name,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: videoState.subtitleFontName == name
+                                      ? menuColors.accent
+                                      : menuColors.foreground,
+                                ),
+                              ),
+                              backgroundColor: menuColors.controlBackground,
+                              side: BorderSide(
+                                color:
+                                    videoState.subtitleFontName == name
+                                        ? menuColors.accent
+                                        : menuColors.controlBorder,
+                              ),
+                              onPressed: () =>
+                                  videoState.setSubtitleFontName(name),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -778,6 +844,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
                     setState(() {
                       _fontImportMessage = '已清空字体库（subtitle_fonts 目录）';
                     });
+                    _refreshFontLibrary();
                   },
                   expandHorizontally: true,
                 ),

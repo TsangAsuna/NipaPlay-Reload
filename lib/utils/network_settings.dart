@@ -157,10 +157,13 @@ class NetworkSettings {
     }
     if (prefixUri != null && srcUri != null &&
         prefixUri.path.isNotEmpty && prefixUri.path != '/') {
-      // 带子路径前缀：把源 URL 的主机替换为反代前缀，保留 path + query
-      final base =
-          prefix.endsWith('/') ? prefix.substring(0, prefix.length - 1) : prefix;
-      return '$base${srcUri.path}${srcUri.hasQuery ? '?${srcUri.query}' : ''}';
+      // 带子路径前缀（如 .../img）：仅 lain 图床做主机替换保留 path；
+      // 其它任意图床（tmdb 等）用「前缀 + 完整 URL」，反代 worker 透传
+      if (srcUri.host.endsWith('lain.bgm.tv')) {
+        final base =
+            prefix.endsWith('/') ? prefix.substring(0, prefix.length - 1) : prefix;
+        return '$base${srcUri.path}${srcUri.hasQuery ? '?${srcUri.query}' : ''}';
+      }
     }
     return '$prefix$url';
   }

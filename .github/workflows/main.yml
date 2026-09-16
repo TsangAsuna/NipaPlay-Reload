@@ -132,10 +132,8 @@ jobs:
       - Gatekeeper
       - Build-Android
       - Build-iOS
-      - Build-macOS
       - Build-Windows
       - Build-Linux
-      - Build-HarmonyOS
       - Build-tvOS
     if: needs.Gatekeeper.outputs.triggered == 'true'
     runs-on: ubuntu-latest

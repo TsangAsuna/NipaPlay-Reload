@@ -259,87 +259,106 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
         return;
       }
 
-      final selected = await BlurDialog.show<RemoteSubtitleCandidate>(
+      // 多选远程字幕（支持一次挂载多个 SRT）
+      final checked = <RemoteSubtitleCandidate>{};
+      final selected = await BlurDialog.show<List<RemoteSubtitleCandidate>>(
         context: context,
-        title: '选择远程字幕',
-        contentWidget: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.6,
-            maxWidth: 520,
-          ),
-          child: ListView.separated(
-            shrinkWrap: true,
-            itemCount: candidates.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final candidate = candidates[index];
-              return ListTile(
-                title: Text(candidate.name),
-                subtitle: Text(candidate.sourceLabel),
-                onTap: () => Navigator.of(context).pop(candidate),
-              );
-            },
-          ),
+        title: '选择远程字幕（可多选）',
+        contentWidget: StatefulBuilder(
+          builder: (context, setDialogState) {
+            return ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.6,
+                maxWidth: 520,
+              ),
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: candidates.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final candidate = candidates[index];
+                  return CheckboxListTile(
+                    value: checked.contains(candidate),
+                    title: Text(candidate.name),
+                    subtitle: Text(candidate.sourceLabel),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    onChanged: (bool? value) {
+                      setDialogState(() {
+                        if (value == true) {
+                          checked.add(candidate);
+                        } else {
+                          checked.remove(candidate);
+                        }
+                      });
+                    },
+                  );
+                },
+              ),
+            );
+          },
         ),
         actions: [
           HoverScaleTextButton(
             child: const Text('取消'),
             onPressed: () => Navigator.of(context).pop(null),
           ),
+          HoverScaleTextButton(
+            child: const Text('挂载选中'),
+            onPressed: () {
+              final list = checked.toList();
+              Navigator.of(context).pop(list.isEmpty ? null : list);
+            },
+          ),
         ],
       );
 
-      if (selected == null) return;
+      if (selected == null || selected.isEmpty) return;
 
       setState(() => _isLoading = true);
-      final cachedPath =
-          await RemoteSubtitleService.instance.ensureSubtitleCached(selected);
-      if (!mounted) return;
-
-      final existingIndex =
-          _externalSubtitles.indexWhere((s) => s['path'] == cachedPath);
-      if (existingIndex >= 0) {
-        _applyExternalSubtitle(videoState, cachedPath, existingIndex);
-        if (mounted && context.mounted) {
-          await _saveExternalSubtitles(context);
-          BlurSnackBar.show(context, '已切换到字幕: ${selected.name}');
+      var loadedCount = 0;
+      var lastIndex = -1;
+      for (final candidate in selected) {
+        if (!mounted) return;
+        final cachedPath = await RemoteSubtitleService.instance
+            .ensureSubtitleCached(candidate);
+        final existingIndex =
+            _externalSubtitles.indexWhere((s) => s['path'] == cachedPath);
+        if (existingIndex >= 0) {
+          lastIndex = existingIndex;
+          loadedCount++;
+          continue;
         }
-        setState(() => _isLoading = false);
-        return;
+        final subtitleInfo = <String, dynamic>{
+          'path': cachedPath,
+          'name': candidate.name,
+          'type': candidate.extension.substring(1),
+          'addTime': DateTime.now().millisecondsSinceEpoch,
+          'isActive': false,
+          'remoteSource': candidate.sourceLabel,
+          if (candidate is WebDavRemoteSubtitleCandidate) ...{
+            'remoteType': 'webdav',
+            'remoteConn': candidate.connection.name,
+            'remotePath': candidate.remotePath,
+          },
+          if (candidate is SmbRemoteSubtitleCandidate) ...{
+            'remoteType': 'smb',
+            'remoteConn': candidate.connection.name,
+            'remotePath': candidate.smbPath,
+          },
+        };
+        setState(() {
+          _externalSubtitles.add(subtitleInfo);
+        });
+        lastIndex = _externalSubtitles.length - 1;
+        loadedCount++;
       }
-
-      final subtitleInfo = <String, dynamic>{
-        'path': cachedPath,
-        'name': selected.name,
-        'type': selected.extension.substring(1),
-        'addTime': DateTime.now().millisecondsSinceEpoch,
-        'isActive': false,
-        'remoteSource': selected.sourceLabel,
-        if (selected is WebDavRemoteSubtitleCandidate) ...{
-          'remoteType': 'webdav',
-          'remoteConn': selected.connection.name,
-          'remotePath': selected.remotePath,
-        },
-        if (selected is SmbRemoteSubtitleCandidate) ...{
-          'remoteType': 'smb',
-          'remoteConn': selected.connection.name,
-          'remotePath': selected.smbPath,
-        },
-      };
-
-      setState(() {
-        _externalSubtitles.add(subtitleInfo);
-      });
-
-      _applyExternalSubtitle(
-        videoState,
-        cachedPath,
-        _externalSubtitles.length - 1,
-      );
-
+      // 全部挂载后激活最后一个选中的字幕
+      if (lastIndex >= 0 && mounted) {
+        _applyExternalSubtitle(videoState, _externalSubtitles[lastIndex]['path'] as String, lastIndex);
+      }
       if (mounted && context.mounted) {
         await _saveExternalSubtitles(context);
-        BlurSnackBar.show(context, '已加载远程字幕: ${selected.name}');
+        BlurSnackBar.show(context, '已加载 $loadedCount 个字幕');
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
@@ -650,6 +669,23 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
                               icon: Icons.cloud_download_outlined,
                               text: "从远程媒体库加载字幕",
                               onTap: () => _loadRemoteSubtitle(context),
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 12, horizontal: 16),
+                              margin: const EdgeInsets.symmetric(horizontal: 0),
+                              expandHorizontally: true,
+                              borderRadius: BorderRadius.zero,
+                            ),
+                            const SizedBox(height: 8),
+                            BlurButton(
+                              icon: Icons.cleaning_services_outlined,
+                              text: "清除字幕缓存",
+                              onTap: () async {
+                                await RemoteSubtitleService.instance
+                                    .clearSubtitleCache();
+                                if (context.mounted) {
+                                  BlurSnackBar.show(context, '已清除字幕缓存');
+                                }
+                              },
                               padding: const EdgeInsets.symmetric(
                                   vertical: 12, horizontal: 16),
                               margin: const EdgeInsets.symmetric(horizontal: 0),

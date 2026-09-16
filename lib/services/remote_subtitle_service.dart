@@ -231,6 +231,21 @@ class RemoteSubtitleService {
     return const [];
   }
 
+  /// 清除全部远程字幕缓存（remote_subtitles 目录）。
+  /// 多字幕组/字幕更新后缓存可能命中旧文件，调用后下次加载会重新下载。
+  Future<void> clearSubtitleCache() async {
+    if (kIsWeb) return;
+    try {
+      final baseDir = await StorageService.getAppStorageDirectory();
+      final cacheDir = Directory(p.join(baseDir.path, 'remote_subtitles'));
+      if (await cacheDir.exists()) {
+        await cacheDir.delete(recursive: true);
+      }
+    } catch (e) {
+      debugPrint('RemoteSubtitleService: 清除字幕缓存失败: $e');
+    }
+  }
+
   Future<String> ensureSubtitleCached(RemoteSubtitleCandidate candidate,
       {bool forceRefresh = false}) async {
     if (kIsWeb) {

@@ -44,6 +44,9 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
   String? _subtitleDelayError;
   bool _subtitleDelayDirty = false;
   double? _subtitleDelayPreviewValue;
+  final TextEditingController _srtDelayController = TextEditingController();
+  final FocusNode _srtDelayFocus = FocusNode();
+  String? _srtDelayError;
   String? _fontImportMessage;
   Future<List<String>>? _fontLibraryFuture;
 
@@ -56,6 +59,8 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
   @override
   void dispose() {
     _subtitleDelayController.dispose();
+    _srtDelayController.dispose();
+    _srtDelayFocus.dispose();
     _fontNameController.dispose();
     _textColorController.dispose();
     _borderColorController.dispose();
@@ -344,6 +349,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
         final menuColors = PlayerMenuTheme.colorsOf(context);
         final videoState = controller.videoState;
         _syncSubtitleDelayController(videoState);
+        _syncSrtDelayController(videoState);
         _syncController(
           controller: _fontNameController,
           focus: _fontNameFocus,
@@ -543,9 +549,120 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
           const SizedBox(height: 4),
           const SettingsHintText('滑块用于快速微调，正值延后，负值提前'),
           SettingsHintText(_buildSubtitleDelayLimitHint(videoState)),
+          if (videoState.currentExternalSubtitleIsSrt) ...[
+            const SizedBox(height: 16),
+            Text(
+              'SRT 时轴偏移（独立，不影响内嵌/ASS）',
+              style: TextStyle(
+                color: menuColors.accent,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _srtDelayController,
+                    focusNode: _srtDelayFocus,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      signed: true,
+                      decimal: true,
+                    ),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'[0-9+\-.,，＋－]'),
+                      ),
+                    ],
+                    style: TextStyle(color: menuColors.foreground),
+                    decoration: InputDecoration(
+                      hintText: '例如 -12.5 或 8',
+                      hintStyle:
+                          TextStyle(color: menuColors.disabledForeground),
+                      filled: true,
+                      fillColor: menuColors.controlBackground,
+                      suffixText: '秒',
+                      suffixStyle: TextStyle(
+                        color: menuColors.secondaryForeground,
+                      ),
+                      errorText: _srtDelayError,
+                      enabledBorder: OutlineInputBorder(
+                        borderSide:
+                            BorderSide(color: menuColors.controlBorder),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: menuColors.accent),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      errorBorder: OutlineInputBorder(
+                        borderSide:
+                            const BorderSide(color: Colors.redAccent),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      focusedErrorBorder: OutlineInputBorder(
+                        borderSide:
+                            const BorderSide(color: Colors.redAccent),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onSubmitted: (_) => _applySrtCustomDelay(videoState),
+                    onChanged: (_) {
+                      if (!_subtitleDelayFocus.hasFocus) {
+                        setState(() => _srtDelayError = null);
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                BlurButton(
+                  text: '应用',
+                  icon: Icons.check,
+                  onTap: () => _applySrtCustomDelay(videoState),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 10),
+                ),
+              ],
+            ),
+            const SettingsHintText('仅对 SRT/VTT 外挂字幕生效，与全局字幕延迟互不影响'),
+          ],
         ],
       ),
     );
+  }
+
+  Future<void> _applySrtCustomDelay(VideoPlayerState videoState) async {
+    final input = _normalizeNumberInput(_srtDelayController.text);
+    if (input.isEmpty) {
+      setState(() => _srtDelayError = '请输入 SRT 偏移秒数');
+      return;
+    }
+    final value = double.tryParse(input);
+    if (value == null) {
+      setState(() => _srtDelayError = '请输入有效的数字');
+      return;
+    }
+    final limit = videoState.subtitleDelayCustomLimitSeconds;
+    if (value.abs() - limit > 0.0001) {
+      final limitText = _formatDelayInput(limit);
+      setState(() => _srtDelayError = '当前视频仅支持 -$limitText ~ +$limitText 秒');
+      return;
+    }
+    await videoState.setSrtSubtitleDelaySeconds(value);
+    if (!mounted) return;
+    FocusScope.of(context).unfocus();
+    setState(() => _srtDelayError = null);
+    BlurSnackBar.show(
+        context, '已设置 SRT 时轴偏移 ${_formatDelayDisplay(value)} 秒');
+  }
+
+  void _syncSrtDelayController(VideoPlayerState videoState) {
+    if (_srtDelayFocus.hasFocus) return;
+    final value = _formatDelayInput(videoState.srtSubtitleDelaySeconds);
+    if (_srtDelayController.text != value) {
+      _srtDelayController.text = value;
+    }
   }
 
   Widget _buildPositionSection(VideoPlayerState videoState) {

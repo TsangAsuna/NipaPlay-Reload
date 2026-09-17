@@ -377,8 +377,12 @@ class SubtitleManager extends ChangeNotifier {
       final loadToken = ++_subtitleLoadToken;
       final previousSubtitleTrackSignatures =
           _isMdkKernel() ? _snapshotCurrentSubtitleTrackSignatures() : null;
-      // NEW: Check if player supports external subtitles
-      if (!_player.supportsExternalSubtitles && path.isNotEmpty) {
+      // NEW: Check if player supports external subtitles.
+      // SRT/VTT 走 App 内叠层渲染（与内核无关），不受此限制；仅占内核字幕轨的
+      // ASS/SSA 等才需要内核支持外挂字幕。
+      if (!_player.supportsExternalSubtitles &&
+          path.isNotEmpty &&
+          !_shouldRenderExternalSubtitleInApp(path)) {
         debugPrint('SubtitleManager: 当前播放器内核不支持加载外部字幕');
         onUserNotification?.call('当前播放器内核不支持加载外部字幕');
         return;
@@ -525,13 +529,22 @@ class SubtitleManager extends ChangeNotifier {
     String path, {
     bool isManualSetting = false,
   }) async {
+    // SRT/VTT（及 Windows ASS/SSA）走 App 内叠层渲染，与内核无关；
+    // 统一复用主路径，避免 Erika 分支把 SRT 塞给原生内核导致播放异常
+    if (_shouldRenderExternalSubtitleInApp(path)) {
+      setExternalSubtitle(path, isManualSetting: isManualSetting);
+      return;
+    }
     if (_player.getPlayerKernelName() != 'Erika') {
       setExternalSubtitle(path, isManualSetting: isManualSetting);
       return;
     }
 
     final loadToken = ++_subtitleLoadToken;
-    if (!_player.supportsExternalSubtitles && path.isNotEmpty) {
+    // SRT/VTT 走 App 内叠层渲染（与内核无关），不受内核外挂字幕能力限制
+    if (!_player.supportsExternalSubtitles &&
+        path.isNotEmpty &&
+        !_shouldRenderExternalSubtitleInApp(path)) {
       throw StateError(
         'The current player does not support external subtitles.',
       );

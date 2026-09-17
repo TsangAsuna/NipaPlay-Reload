@@ -392,6 +392,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
             children: controller.supportsFullSubtitleStyle
                 ? [
                     _buildOverrideModeSection(videoState),
+                    _buildDragGestureSection(videoState),
                     _buildScaleSection(controller),
                     _buildDelaySection(videoState),
                     _buildPositionSection(videoState),
@@ -404,6 +405,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
                     _buildFontSection(videoState),
                   ]
                 : [
+                    _buildDragGestureSection(videoState),
                     _buildScaleSection(controller),
                   ],
           ),
@@ -442,6 +444,26 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
       description: 'ASS 字幕样式覆盖策略',
       items: items,
       onSelected: videoState.setSubtitleOverrideMode,
+    );
+  }
+
+  Widget _buildDragGestureSection(VideoPlayerState videoState) {
+    return _buildOptionButtonsSection(
+      title: '拖动字幕手势',
+      description: '调整字幕位置的手指数（nPlayer 风格）',
+      items: [
+        DropdownMenuItemData<int>(
+          value: 1,
+          title: '单指',
+          isSelected: videoState.subtitleDragFingers == 1,
+        ),
+        DropdownMenuItemData<int>(
+          value: 2,
+          title: '双指',
+          isSelected: videoState.subtitleDragFingers == 2,
+        ),
+      ],
+      onSelected: videoState.setSubtitleDragFingers,
     );
   }
 

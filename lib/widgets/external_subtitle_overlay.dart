@@ -2,13 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:nipaplay/utils/video_player_state.dart';
 import 'package:provider/provider.dart';
 
-class ExternalSubtitleOverlay extends StatelessWidget {
+class ExternalSubtitleOverlay extends StatefulWidget {
   final double currentPositionMs;
 
   const ExternalSubtitleOverlay({
     super.key,
     required this.currentPositionMs,
   });
+
+  @override
+  State<ExternalSubtitleOverlay> createState() => _ExternalSubtitleOverlayState();
+}
+
+class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
+  /// 长按后显示编辑框（带锁定键）
+  bool _boxVisible = false;
+  /// 锁定后位置不可拖动，锁键隐藏；点击字幕解锁
+  bool _locked = false;
 
   @override
   Widget build(BuildContext context) {
@@ -19,7 +29,7 @@ class ExternalSubtitleOverlay extends StatelessWidget {
         }
 
         final isSrt = videoState.currentExternalSubtitleIsSrt;
-        final subtitleTimeMs = currentPositionMs -
+        final subtitleTimeMs = widget.currentPositionMs -
             (isSrt
                 ? videoState.srtSubtitleDelaySeconds
                 : videoState.subtitleDelaySeconds) *
@@ -107,25 +117,92 @@ class ExternalSubtitleOverlay extends StatelessWidget {
                 ),
               );
 
-              // SRT 支持拖拽：水平调 marginX，垂直调 position（已锁定时不响应）
+              // SRT 拖动交互（nPlayer 式）：
+              // - 长按字幕 -> 显示编辑框 + 锁定键
+              // - 未锁定时可自由拖动（水平 marginX / 垂直 position）
+              // - 点锁定键 -> 锁定（位置冻结，锁键隐藏）
+              // - 锁定后点击字幕 -> 解锁并重新显示锁键
               if (draggable) {
                 content = GestureDetector(
                   behavior: HitTestBehavior.translucent,
-                  onPanUpdate: (details) {
-                    final v = videoState;
-                    v.setSubtitleMarginX(
-                      v.subtitleMarginX + details.delta.dx,
-                    );
-                    v.setSubtitlePosition(
-                      (v.subtitlePosition + details.delta.dy / 4)
-                          .clamp(
-                            VideoPlayerState.minSubtitlePosition,
-                            VideoPlayerState.maxSubtitlePosition,
-                          )
-                          .toDouble(),
-                    );
+                  onLongPressStart: (_) {
+                    if (!_boxVisible) {
+                      setState(() => _boxVisible = true);
+                    }
                   },
-                  child: content,
+                  onTapUp: (_) {
+                    if (_locked) {
+                      // 锁定时点击字幕 -> 解锁并显示锁键
+                      setState(() {
+                        _locked = false;
+                        _boxVisible = true;
+                      });
+                    } else {
+                      // 未锁定时点击字幕 -> 收起编辑框
+                      if (_boxVisible) {
+                        setState(() => _boxVisible = false);
+                      }
+                    }
+                  },
+                  onPanUpdate: _locked
+                      ? null
+                      : (details) {
+                          final v = videoState;
+                          v.setSubtitleMarginX(
+                            v.subtitleMarginX + details.delta.dx,
+                          );
+                          v.setSubtitlePosition(
+                            (v.subtitlePosition + details.delta.dy / 4)
+                                .clamp(
+                                  VideoPlayerState.minSubtitlePosition,
+                                  VideoPlayerState.maxSubtitlePosition,
+                                )
+                                .toDouble(),
+                          );
+                        },
+                  child: _boxVisible
+                      ? Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            content,
+                            // 编辑框虚线边框
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    border: Border.all(
+                                      color: _locked
+                                          ? const Color(0x99FFD54F)
+                                          : const Color(0x99FFFFFF),
+                                      width: 1,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            // 锁定键：未锁定显示（点它锁定）；锁定后隐藏
+                            if (!_locked)
+                              Positioned(
+                                right: -18,
+                                top: -18,
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    setState(() => _locked = true);
+                                  },
+                                  child: const Icon(
+                                    Icons.lock_outline,
+                                    size: 22,
+                                    color: Color(0xFFFFD54F),
+                                    shadows: [
+                                      Shadow(blurRadius: 4, color: Colors.black),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        )
+                      : content,
                 );
               }
 

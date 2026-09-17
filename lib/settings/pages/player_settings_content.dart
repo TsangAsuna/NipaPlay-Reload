@@ -35,6 +35,7 @@ class _PlayerSettingsContentState extends State<PlayerSettingsContent> {
 
   // 为BlurDropdown添加GlobalKey
   final GlobalKey _playerKernelDropdownKey = GlobalKey();
+  final GlobalKey _subtitleDragFingersDropdownKey = GlobalKey();
   final GlobalKey _androidAudioOutputDropdownKey = GlobalKey();
   final GlobalKey _erikaUpscalerDropdownKey = GlobalKey();
   final GlobalKey _erikaAndroidOutputDropdownKey = GlobalKey();
@@ -388,6 +389,42 @@ class _PlayerSettingsContentState extends State<PlayerSettingsContent> {
                   _savePlayerKernelSettings(kernelType);
                 },
                 dropdownKey: _playerKernelDropdownKey,
+              ),
+              Divider(
+                  color: colorScheme.onSurface.withValues(alpha: 0.12),
+                  height: 1),
+              Consumer<VideoPlayerState>(
+                builder: (context, videoState, child) {
+                  return AdaptiveSettingsTile.dropdown(
+                    title: '字幕拖动最多手指数',
+                    subtitle: '长按字幕出现编辑框后，用不超过此数量的手指拖动字幕位置（nPlayer 风格，三指及以上不响应）',
+                    icon: Ionicons.move_outline,
+                    items: [
+                      DropdownMenuItemData(
+                        title: '双指（默认）',
+                        value: 2,
+                        isSelected: videoState.subtitleDragFingers == 2,
+                        description: '单指或双指均可拖动',
+                      ),
+                      DropdownMenuItemData(
+                        title: '单指',
+                        value: 1,
+                        isSelected: videoState.subtitleDragFingers == 1,
+                        description: '仅单指可拖动',
+                      ),
+                    ],
+                    onChanged: (dynamic value) async {
+                      if (value is! int) return;
+                      await videoState.setSubtitleDragFingers(value);
+                      if (!context.mounted) return;
+                      BlurSnackBar.show(
+                        context,
+                        value == 1 ? '字幕拖动已设为单指' : '字幕拖动已设为双指',
+                      );
+                    },
+                    dropdownKey: _subtitleDragFingersDropdownKey,
+                  );
+                },
               ),
               Divider(
                   color: colorScheme.onSurface.withValues(alpha: 0.12),

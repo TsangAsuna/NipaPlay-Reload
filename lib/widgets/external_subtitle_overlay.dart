@@ -165,8 +165,9 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                     onScaleStart: _locked
                                         ? null
                                         : (details) {
-                                            // 按设置的手指数（1=单指 2=双指）才响应拖动
-                                            if (details.pointerCount != videoState.subtitleDragFingers) {
+                                            // 超过设置的最大手指数（1=单指 2=双指）不响应拖动
+                                            if (details.pointerCount >
+                                                videoState.subtitleDragFingers) {
                                               return;
                                             }
                                             if (!_boxVisible) {
@@ -177,7 +178,8 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                         ? null
                                         : (details) {
                                             final v = videoState;
-                                            if (details.pointerCount != v.subtitleDragFingers) {
+                                            if (details.pointerCount >
+                                                v.subtitleDragFingers) {
                                               return;
                                             }
                                             v.setSubtitleMarginX(
@@ -194,74 +196,85 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                             );
                                           },
                                     child: _boxVisible
-                                        ? Stack(
-                                            clipBehavior: Clip.none,
-                                            children: [
-                                              textBox,
-                                              // 编辑框虚线边框（只圈住字幕文本区域）
-                                              Positioned.fill(
-                                                child: IgnorePointer(
-                                                  child: Container(
-                                                    decoration: BoxDecoration(
-                                                      border: Border.all(
-                                                        color: _locked
-                                                            ? const Color(0x99FFD54F)
-                                                            : const Color(0x99FFFFFF),
-                                                        width: 1,
+                                        ? Transform.translate(
+                                            offset: const Offset(-18, -18),
+                                            child: Padding(
+                                              padding: const EdgeInsets.all(18),
+                                              child: Stack(
+                                                clipBehavior: Clip.none,
+                                                children: [
+                                                  // 文本 + 虚线边框层（只圈住字幕文本区域）
+                                                  Stack(
+                                                    clipBehavior: Clip.none,
+                                                    children: [
+                                                      textBox,
+                                                      Positioned.fill(
+                                                        child: IgnorePointer(
+                                                          child: Container(
+                                                            decoration: BoxDecoration(
+                                                              border: Border.all(
+                                                                color: _locked
+                                                                    ? const Color(0x99FFD54F)
+                                                                    : const Color(0x99FFFFFF),
+                                                                width: 1,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  // 背景切换键（字幕框左上外角）
+                                                  Positioned(
+                                                    left: 0,
+                                                    top: 0,
+                                                    child: GestureDetector(
+                                                      behavior: HitTestBehavior.opaque,
+                                                      onTap: () {
+                                                        setState(() {
+                                                          _subtitleBgEnabled =
+                                                              !_subtitleBgEnabled;
+                                                        });
+                                                      },
+                                                      child: Icon(
+                                                        _subtitleBgEnabled
+                                                            ? Icons.format_color_fill
+                                                            : Icons.format_color_reset_outlined,
+                                                        size: 22,
+                                                        color: const Color(0xFFFFFFFF),
+                                                        shadows: const [
+                                                          Shadow(
+                                                              blurRadius: 4,
+                                                              color: Colors.black),
+                                                        ],
                                                       ),
                                                     ),
                                                   ),
-                                                ),
-                                              ),
-                                              // 背景切换键：点击切换字幕背景 有/无
-                                              Positioned(
-                                                left: -18,
-                                                top: -18,
-                                                child: GestureDetector(
-                                                  behavior: HitTestBehavior.opaque,
-                                                  onTap: () {
-                                                    setState(() {
-                                                      _subtitleBgEnabled =
-                                                          !_subtitleBgEnabled;
-                                                    });
-                                                  },
-                                                  child: Icon(
-                                                    _subtitleBgEnabled
-                                                        ? Icons.format_color_fill
-                                                        : Icons.format_color_reset_outlined,
-                                                    size: 22,
-                                                    color: const Color(0xFFFFFFFF),
-                                                    shadows: const [
-                                                      Shadow(
-                                                          blurRadius: 4,
-                                                          color: Colors.black),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
-                                              // 锁定键：未锁定显示（点它锁定）；锁定后隐藏
-                                              if (!_locked)
-                                                Positioned(
-                                                  right: -18,
-                                                  top: -18,
-                                                  child: GestureDetector(
-                                                    behavior: HitTestBehavior.opaque,
-                                                    onTap: () {
-                                                      setState(() => _locked = true);
-                                                    },
-                                                    child: const Icon(
-                                                      Icons.lock_outline,
-                                                      size: 22,
-                                                      color: Color(0xFFFFD54F),
-                                                      shadows: [
-                                                        Shadow(
-                                                            blurRadius: 4,
-                                                            color: Colors.black),
-                                                      ],
+                                                  // 锁定键：未锁定显示（点它锁定）；锁定后隐藏
+                                                  if (!_locked)
+                                                    Positioned(
+                                                      right: 0,
+                                                      top: 0,
+                                                      child: GestureDetector(
+                                                        behavior: HitTestBehavior.opaque,
+                                                        onTap: () {
+                                                          setState(() => _locked = true);
+                                                        },
+                                                        child: const Icon(
+                                                          Icons.lock_outline,
+                                                          size: 22,
+                                                          color: Color(0xFFFFD54F),
+                                                          shadows: [
+                                                            Shadow(
+                                                                blurRadius: 4,
+                                                                color: Colors.black),
+                                                          ],
+                                                        ),
+                                                      ),
                                                     ),
-                                                  ),
-                                                ),
-                                            ],
+                                                ],
+                                              ),
+                                            ),
                                           )
                                         : textBox,
                                   )

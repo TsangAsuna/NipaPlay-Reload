@@ -464,30 +464,19 @@ extension DashboardHomePageHeroBuild on _DashboardHomePageState {
               right: 8,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(
-                      sigmaX: context
-                              .watch<AppearanceSettingsProvider>()
-                              .enableWidgetBlurEffect
-                          ? 25
-                          : 0,
-                      sigmaY: context
-                              .watch<AppearanceSettingsProvider>()
-                              .enableWidgetBlurEffect
-                          ? 25
-                          : 0),
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(1.0),
-                        width: 1,
-                      ),
+                // BackdropFilter 离屏渲染昂贵；改用纯色半透明（视觉等价，零模糊开销）
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.9),
+                      width: 1,
                     ),
-                    child: Row(
+                  ),
+                  child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
@@ -509,7 +498,6 @@ extension DashboardHomePageHeroBuild on _DashboardHomePageState {
                   ),
                 ),
               ),
-            ),
 
           // 左下角小Logo（如果有的话）
           // Logo图片 - 使用高效缓存组件

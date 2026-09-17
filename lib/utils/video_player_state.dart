@@ -592,8 +592,10 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   final String _subtitleFontNameKey = 'subtitle_font_name';
   final String _subtitleFontDirKey = 'subtitle_font_dir';
   final String _subtitleOverrideModeKey = 'subtitle_override_mode';
+  final String _srtSubtitleDelayKey = 'srt_subtitle_delay';
   double _subtitleScale = defaultSubtitleScale;
   double _subtitleDelaySeconds = defaultSubtitleDelaySeconds;
+  double _srtSubtitleDelaySeconds = defaultSubtitleDelaySeconds;
   double _subtitlePosition = defaultSubtitlePosition;
   SubtitleAlignX _subtitleAlignX = defaultSubtitleAlignX;
   SubtitleAlignY _subtitleAlignY = defaultSubtitleAlignY;
@@ -1164,6 +1166,16 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
 
   double get subtitleDelaySeconds =>
       _resolveSubtitleDelaySecondsForCurrentVideo(_subtitleDelaySeconds);
+
+  /// SRT 独立时轴偏移（秒），不与 ASS 冲突
+  double get srtSubtitleDelaySeconds => _srtSubtitleDelaySeconds;
+
+  /// 当前外挂字幕是否为 SRT（决定 overlay 用哪套时轴/交互）
+  bool get currentExternalSubtitleIsSrt {
+    final path = getActiveExternalSubtitlePath();
+    if (path == null || path.isEmpty) return false;
+    return p.extension(path).toLowerCase() == '.srt';
+  }
 
   double? _parseSeekStepFrameRateNumericToken(String value) {
     final directNumber = double.tryParse(value);

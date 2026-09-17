@@ -1829,6 +1829,8 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
       prefs.getDouble(_subtitleScaleKey) ??
           VideoPlayerState.defaultSubtitleScale,
     );
+    _srtSubtitleDelaySeconds = prefs.getDouble(_srtSubtitleDelayKey) ??
+        defaultSubtitleDelaySeconds;
     _subtitleDelaySeconds = prefs.getDouble(_subtitleDelayKey) ??
         VideoPlayerState.defaultSubtitleDelaySeconds;
     _subtitlePosition = _clampSubtitlePosition(
@@ -1885,6 +1887,16 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_subtitleScaleKey, resolved);
     await applySubtitleStylePreference();
+    _notifyListeners();
+  }
+
+  /// 设置 SRT 独立时轴偏移（秒）
+  Future<void> setSrtSubtitleDelaySeconds(double seconds) async {
+    final clamped = _resolveSubtitleDelaySecondsForCurrentVideo(seconds);
+    if (_srtSubtitleDelaySeconds == clamped) return;
+    _srtSubtitleDelaySeconds = clamped;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_srtSubtitleDelayKey, clamped);
     _notifyListeners();
   }
 

@@ -18,8 +18,12 @@ class ExternalSubtitleOverlay extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        final subtitleTimeMs =
-            currentPositionMs - videoState.subtitleDelaySeconds * 1000;
+        final isSrt = videoState.currentExternalSubtitleIsSrt;
+        final subtitleTimeMs = currentPositionMs -
+            (isSrt
+                ? videoState.srtSubtitleDelaySeconds
+                : videoState.subtitleDelaySeconds) *
+                1000;
         final subtitleText =
             videoState.getCurrentExternalSubtitleTextAt(subtitleTimeMs.round());
 
@@ -27,8 +31,10 @@ class ExternalSubtitleOverlay extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
+        // SRT 叠层可拖动/缩放调整（水平 margin、垂直 position）；ASS 保持只读
+        final draggable = isSrt;
         return IgnorePointer(
-          ignoring: true,
+          ignoring: !draggable,
           child: LayoutBuilder(
             builder: (context, constraints) {
               final width = constraints.maxWidth.isFinite
@@ -75,7 +81,7 @@ class ExternalSubtitleOverlay extends StatelessWidget {
                 shadows: null,
               );
 
-              return Opacity(
+              Widget content = Opacity(
                 opacity: videoState.subtitleOpacity.clamp(0.0, 1.0).toDouble(),
                 child: Padding(
                   padding: EdgeInsets.symmetric(
@@ -100,6 +106,30 @@ class ExternalSubtitleOverlay extends StatelessWidget {
                   ),
                 ),
               );
+
+              // SRT 支持拖拽：水平调 marginX，垂直调 position（已锁定时不响应）
+              if (draggable) {
+                content = GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onPanUpdate: (details) {
+                    final v = videoState;
+                    v.setSubtitleMarginX(
+                      v.subtitleMarginX + details.delta.dx,
+                    );
+                    v.setSubtitlePosition(
+                      (v.subtitlePosition + details.delta.dy / 4)
+                          .clamp(
+                            VideoPlayerState.minSubtitlePosition,
+                            VideoPlayerState.maxSubtitlePosition,
+                          )
+                          .toDouble(),
+                    );
+                  },
+                  child: content,
+                );
+              }
+
+              return content;
             },
           ),
         );

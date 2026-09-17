@@ -436,16 +436,19 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
         MediaServerMenuSurface.nipaplaySubtitle,
         isEmby,
         () async {
-          // 禁用外部字幕 (如果之前有外部字幕激活)
-          // This ensures that if an external subtitle was active, turning on an embedded one
-          // correctly signals that the external one is no longer the primary.
-          // The player adapter and subtitle manager should handle the state changes.
-          videoState.setExternalSubtitle(
-              ""); // Clears external subtitle path in manager
+          // SRT 走 App 叠层渲染，与内嵌轨道可共存：只清理 ASS/SSA 类外部字幕
+          final activeExternal = videoState.getActiveExternalSubtitlePath();
+          final activeIsSrt = activeExternal != null &&
+              p.extension(activeExternal).toLowerCase() == '.srt';
+          if (!activeIsSrt) {
+            // 禁用外部字幕 (如果之前有外部 ASS 字幕激活)
+            videoState.setExternalSubtitle(
+                ""); // Clears external subtitle path in manager
 
-          // 将所有外部字幕设为非激活 (UI state for external subtitles list)
-          for (var subtitle in _externalSubtitles) {
-            subtitle['isActive'] = false;
+            // 将所有外部字幕设为非激活 (UI state for external subtitles list)
+            for (var subtitle in _externalSubtitles) {
+              subtitle['isActive'] = false;
+            }
           }
 
           // 如果指定了轨道索引，切换到该内嵌字幕

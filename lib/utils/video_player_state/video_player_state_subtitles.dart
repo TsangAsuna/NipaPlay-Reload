@@ -173,6 +173,12 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
     await _subtitleManager.preloadSubtitleFile(path);
   }
 
+  // 桥接方法：叠加挂载外部字幕到堆栈（多挂 SRT）
+  Future<void> addExternalSubtitleToStack(String path) async {
+    await _subtitleManager.addExternalSubtitleToStack(path);
+    _notifyListeners();
+  }
+
   // 桥接方法：取消挂载外部字幕（从叠层/内核移除）
   Future<void> removeExternalSubtitle(String path) async {
     await _subtitleManager.removeExternalSubtitleFromStack(path);

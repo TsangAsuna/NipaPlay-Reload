@@ -358,7 +358,7 @@ class _DanmakuSettingsMenuState extends State<DanmakuSettingsMenu> {
 
   Future<void> _pickDanmakuFontFolder(VideoPlayerState videoState) async {
     // iOS 上 file_selector 的 getDirectoryPath 不受支持，改用多选字体文件兜底
-    if (io.Platform.isIOS) {
+    if (Platform.isIOS) {
       await _pickDanmakuFontFile(videoState);
       return;
     }

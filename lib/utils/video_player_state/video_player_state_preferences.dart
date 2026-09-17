@@ -2114,6 +2114,27 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     }
   }
 
+  /// 将字幕字体注册到 Flutter（overlay 的 fontFamily 才能生效，否则 Text 不渲染）
+  Future<String?> _registerSubtitleRuntimeFont(String filePath) async {
+    if (kIsWeb) return null;
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) return null;
+      final family = p.basenameWithoutExtension(filePath);
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) return null;
+      final loader = FontLoader(family);
+      loader.addFont(
+        Future<ByteData>.value(ByteData.sublistView(Uint8List.fromList(bytes))),
+      );
+      await loader.load();
+      return family;
+    } catch (e) {
+      debugPrint('[VideoPlayerState] 注册字幕字体失败: $e');
+      return null;
+    }
+  }
+
   Future<void> importSubtitleFontFile(String sourcePath,
       {bool applyName = true}) async {
     if (sourcePath.isEmpty) return;
@@ -2124,6 +2145,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
       final fileName = p.basename(sourcePath);
       final destPath = p.join(fontsDir.path, fileName);
       await File(sourcePath).copy(destPath);
+      await _registerSubtitleRuntimeFont(destPath);
       _subtitleFontDir = fontsDir.path;
       if (applyName) {
         _subtitleFontName = p.basenameWithoutExtension(destPath);
@@ -2175,6 +2197,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
         final fileName = p.basename(file.path);
         final destPath = p.join(fontsDir.path, fileName);
         await file.copy(destPath);
+        await _registerSubtitleRuntimeFont(destPath);
         copiedCount++;
       }
 

@@ -107,8 +107,10 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
         _selectedFonts.add(name);
       }
     });
-    // 以最后点击的字体作为生效字体（sub-font 单值）
-    videoState.setSubtitleFontName(name);
+    // 多选字体用英文逗号自动隔开；取消则删除对应项
+    final joined = _selectedFonts.join(', ');
+    _fontNameController.text = joined;
+    videoState.setSubtitleFontName(joined);
   }
 
   Future<void> _pickFontFile(VideoPlayerState videoState) async {

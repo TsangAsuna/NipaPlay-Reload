@@ -19,6 +19,8 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
   bool _boxVisible = false;
   /// 锁定后位置不可拖动，锁键隐藏；点击字幕解锁
   bool _locked = false;
+  /// 字幕背景（功能区按钮切换；默认无背景）
+  bool _subtitleBgEnabled = false;
 
   @override
   Widget build(BuildContext context) {
@@ -105,13 +107,33 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                     ),
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: width * 0.9),
-                      child: _OutlinedSubtitleText(
-                        text: subtitleText,
-                        fillStyle: fillStyle,
-                        borderStyle: borderStyle,
-                        showBorder: videoState.subtitleBorderSize > 0,
-                        textAlign: _resolveTextAlign(videoState.subtitleAlignX),
-                      ),
+                      child: _subtitleBgEnabled
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0x99000000),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: _OutlinedSubtitleText(
+                                text: subtitleText,
+                                fillStyle: fillStyle,
+                                borderStyle: borderStyle,
+                                showBorder:
+                                    videoState.subtitleBorderSize > 0,
+                                textAlign: _resolveTextAlign(
+                                    videoState.subtitleAlignX),
+                              ),
+                            )
+                          : _OutlinedSubtitleText(
+                              text: subtitleText,
+                              fillStyle: fillStyle,
+                              borderStyle: borderStyle,
+                              showBorder:
+                                  videoState.subtitleBorderSize > 0,
+                              textAlign:
+                                  _resolveTextAlign(videoState.subtitleAlignX),
+                            ),
                     ),
                   ),
                 ),
@@ -177,6 +199,30 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                       width: 1,
                                     ),
                                   ),
+                                ),
+                              ),
+                            ),
+                            // 背景切换键：点击切换字幕背景 有/无
+                            Positioned(
+                              left: -18,
+                              top: -18,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  setState(() {
+                                    _subtitleBgEnabled = !_subtitleBgEnabled;
+                                  });
+                                },
+                                child: Icon(
+                                  _subtitleBgEnabled
+                                      ? Icons.format_color_fill
+                                      : Icons.format_color_reset_outlined,
+                                  size: 22,
+                                  color: const Color(0xFFFFFFFF),
+                                  shadows: const [
+                                    Shadow(
+                                        blurRadius: 4, color: Colors.black),
+                                  ],
                                 ),
                               ),
                             ),

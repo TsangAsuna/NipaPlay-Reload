@@ -93,26 +93,33 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
   }
 
   Future<void> _pickFontFile(VideoPlayerState videoState) async {
-    final file = await openFile(
+    // 多选导入：导入后不自动套用字体名，由用户从字体库列表自由选择
+    final files = await openFiles(
       acceptedTypeGroups: [
         XTypeGroup(
           label: 'Font',
           extensions: const ['ttf', 'otf', 'ttc'],
-          uniformTypeIdentifiers: io.Platform.isIOS
-              ? [
-                  'public.truetype-font',
-                  'public.opentype-font',
-                  'public.font',
-                  'public.data',
-                  'public.item'
-                ]
-              : null,
+          uniformTypeIdentifiers: const [
+            'public.truetype-font',
+            'public.opentype-font',
+            'public.font',
+            'public.data',
+            'public.item',
+          ],
         ),
       ],
     );
-    if (file == null) return;
-    await videoState.importSubtitleFontFile(file.path);
-    if (mounted) _refreshFontLibrary();
+    if (files.isEmpty) return;
+    var count = 0;
+    for (final f in files) {
+      await videoState.importSubtitleFontFile(f.path, applyName: false);
+      count++;
+    }
+    if (!mounted) return;
+    setState(() {
+      _fontImportMessage = '已导入 $count 个字体文件';
+    });
+    _refreshFontLibrary();
   }
 
   Future<void> _pickFontDirectory(VideoPlayerState videoState) async {

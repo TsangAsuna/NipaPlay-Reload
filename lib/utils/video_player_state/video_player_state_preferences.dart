@@ -1830,7 +1830,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
           VideoPlayerState.defaultSubtitleScale,
     );
     _srtSubtitleDelaySeconds = prefs.getDouble(_srtSubtitleDelayKey) ??
-        defaultSubtitleDelaySeconds;
+        VideoPlayerState.defaultSubtitleDelaySeconds;
     _subtitleDelaySeconds = prefs.getDouble(_subtitleDelayKey) ??
         VideoPlayerState.defaultSubtitleDelaySeconds;
     _subtitlePosition = _clampSubtitlePosition(
@@ -1911,6 +1911,19 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     _notifyListeners();
   }
 
+
+  /// 位置/边距/对齐改动后强制 libass 重新排版（mpv 需 seek 触发字幕重渲染，否则要重载视频才生效）
+  void _refreshSubtitleLayout() {
+    if (kIsWeb || _isDisposed) return;
+    try {
+      final pos = _position.inMilliseconds;
+      if (pos <= 0) return;
+      player.seek(position: pos);
+    } catch (e) {
+      debugPrint('[VideoPlayerState] 字幕布局刷新失败: $e');
+    }
+  }
+
   Future<void> setSubtitlePosition(double position) async {
     final resolved = _clampSubtitlePosition(position);
     if ((_subtitlePosition - resolved).abs() < 0.0001) {
@@ -1920,6 +1933,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_subtitlePositionKey, resolved);
     await applySubtitleStylePreference();
+    _refreshSubtitleLayout();
     _notifyListeners();
   }
 
@@ -1929,6 +1943,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_subtitleAlignXKey, align.index);
     await applySubtitleStylePreference();
+    _refreshSubtitleLayout();
     _notifyListeners();
   }
 
@@ -1938,6 +1953,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_subtitleAlignYKey, align.index);
     await applySubtitleStylePreference();
+    _refreshSubtitleLayout();
     _notifyListeners();
   }
 
@@ -1947,6 +1963,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_subtitleMarginXKey, value);
     await applySubtitleStylePreference();
+    _refreshSubtitleLayout();
     _notifyListeners();
   }
 
@@ -1956,6 +1973,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_subtitleMarginYKey, value);
     await applySubtitleStylePreference();
+    _refreshSubtitleLayout();
     _notifyListeners();
   }
 
@@ -2306,6 +2324,26 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
       String? effectiveFontDir;
       String? localFontsFolder;
       final hadPreviousFontDir = _subtitleFontDir.isNotEmpty;
+
+      // 字体仅在“自定义样式”(force) 模式下生效；其他模式清空自定义字体
+      final fontOverrideActive =
+          _subtitleOverrideMode == SubtitleStyleOverrideMode.force;
+      if (!fontOverrideActive) {
+        if (hadPreviousFontDir) {
+          player.setProperty('sub-fonts-dir', '');
+          if (defaultTargetPlatform == TargetPlatform.iOS) {
+            player.setProperty('sub-file-paths', '');
+          }
+          _subtitleFontDir = '';
+        }
+        final resolvedDefaultFont = _defaultSubtitleFontNameForPlatform();
+        player.setProperty('sub-font', resolvedDefaultFont);
+        player.setProperty(
+          'sub-ass-override',
+          _subtitleOverrideModeToMpv(_subtitleOverrideMode),
+        );
+        return;
+      }
 
       if (_currentVideoPath != null &&
           !_currentVideoPath!.startsWith('http') &&

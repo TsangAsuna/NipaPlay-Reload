@@ -366,9 +366,29 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
         lastIndex = _externalSubtitles.length - 1;
         loadedCount++;
       }
-      // 全部挂载后激活最后一个选中的字幕
-      if (lastIndex >= 0 && mounted) {
-        _applyExternalSubtitle(videoState, _externalSubtitles[lastIndex]['path'] as String, lastIndex);
+      // 多挂：所有选中的 SRT/VTT 叠加激活；ASS/其他保持最后一项单挂
+      if (mounted && _externalSubtitles.isNotEmpty) {
+        var applied = false;
+        for (var i = 0; i < _externalSubtitles.length; i++) {
+          final sub = _externalSubtitles[i];
+          final subPath = sub['path'] as String?;
+          if (subPath == null || subPath.isEmpty) continue;
+          final ext = p.extension(subPath).toLowerCase();
+          if (ext == '.srt' || ext == '.vtt') {
+            await videoState.addExternalSubtitleToStack(subPath);
+            sub['isActive'] = true;
+            applied = true;
+          } else if (i == lastIndex) {
+            _applyExternalSubtitle(videoState, subPath, i);
+            applied = true;
+          }
+        }
+        if (!applied && lastIndex >= 0) {
+          _applyExternalSubtitle(
+              videoState,
+              _externalSubtitles[lastIndex]['path'] as String,
+              lastIndex);
+        }
       }
       if (mounted && context.mounted) {
         await _saveExternalSubtitles(context);
@@ -744,13 +764,13 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
                     child: InkWell(
                       onTap: () async {
                         if (isActive) {
-                          final switched = await _switchToEmbeddedSubtitle(
-                            context,
-                            -1,
-                            persistEmbyPreference: false,
-                          );
-                          if (switched && context.mounted) {
-                            BlurSnackBar.show(context, '已关闭字幕');
+                          final filePath = subtitle['path'] as String;
+                          await videoState.removeExternalSubtitle(filePath);
+                          setState(() {
+                            subtitle['isActive'] = false;
+                          });
+                          if (context.mounted) {
+                            BlurSnackBar.show(context, '已移除字幕');
                           }
                         } else {
                           final filePath = subtitle['path'] as String;
@@ -885,7 +905,14 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
                   // Active state is based on player's active tracks and no external subtitle being active.
                   final bool hasActiveExternal =
                       _externalSubtitles.any((s) => s['isActive'] == true);
-                  final isActive = !hasActiveExternal &&
+                  // SRT/VTT 走叠层渲染不占内核字幕轨，与内嵌轨可共存：
+                  // 只有 ASS/SSA 类（占内核轨的）外部字幕才阻止内嵌轨道勾选。
+                  final activeExt = videoState.getActiveExternalSubtitlePath();
+                  final blockByExternal = hasActiveExternal &&
+                      !(activeExt != null &&
+                          (p.extension(activeExt).toLowerCase() == '.srt' ||
+                              p.extension(activeExt).toLowerCase() == '.vtt'));
+                  final isActive = !blockByExternal &&
                       videoState.player.activeSubtitleTracks.contains(index);
 
                   // --- Get Title and Language from SubtitleManager ---

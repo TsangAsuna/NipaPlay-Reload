@@ -36,6 +36,9 @@ class SubtitleManager extends ChangeNotifier {
   String? _currentExternalSubtitlePath;
   final Map<String, Map<String, dynamic>> _subtitleTrackInfo = {};
   final Map<String, List<dynamic>> _subtitleCache = {};
+
+  /// 缓存指纹：path -> "size:mtime"，用于检测字幕文件内容变化
+  final Map<String, String> _subtitleCacheFingerprint = {};
   int _subtitleLoadToken = 0;
 
   // 视频-字幕路径映射的持久化存储键
@@ -79,6 +82,13 @@ class SubtitleManager extends ChangeNotifier {
     _subtitleTrackInfo.clear();
     notifyListeners();
   }
+
+  /// 所有活跃的外部字幕路径（支持多挂 SRT 叠层渲染）
+  final List<String> _activeExternalSubtitlePaths = [];
+
+  /// 获取全部活跃的外部字幕路径（多挂时叠加渲染）
+  List<String> getAllActiveExternalSubtitlePaths() =>
+      List.unmodifiable(_activeExternalSubtitlePaths);
 
   // 获取当前活跃的外部字幕文件路径
   String? getActiveExternalSubtitlePath() {
@@ -193,14 +203,21 @@ class SubtitleManager extends ChangeNotifier {
 
   // 异步预加载字幕文件
   Future<void> preloadSubtitleFile(String path) async {
-    // 如果已经缓存过，不重复加载
-    if (_subtitleCache.containsKey(path)) {
-      return;
-    }
-
     try {
       final file = File(path);
-      if (await file.exists()) {
+      if (!await file.exists()) return;
+      // 缓存指纹：文件大小+修改时间，字幕文件变化后强制重新解析
+      final stat = await file.stat();
+      final fingerprint =
+          '${stat.size}:${stat.modified.millisecondsSinceEpoch}';
+      if (_subtitleCache.containsKey(path)) {
+        if (_subtitleCacheFingerprint[path] == fingerprint) {
+          return;
+        }
+        _subtitleCache.remove(path);
+        debugPrint('SubtitleManager: 字幕文件已变化($path)，强制重新解析');
+      }
+      {
         // 仅对文本字幕进行预解析，图像字幕(.sup)直接交给播放器
         final extension = p.extension(path).toLowerCase();
         if (extension == '.ass' ||
@@ -212,6 +229,7 @@ class SubtitleManager extends ChangeNotifier {
             allowUnknownFormat: true,
           );
           _subtitleCache[path] = result.entries;
+          _subtitleCacheFingerprint[path] = fingerprint;
           notifyListeners();
         } else if (extension == '.sup') {
           debugPrint('SubtitleManager: 检测到sup字幕，跳过文本解析');
@@ -399,6 +417,10 @@ class SubtitleManager extends ChangeNotifier {
 
         // 更新内部路径，如果是手动设置的，特别标记以避免被内嵌字幕覆盖
         _currentExternalSubtitlePath = path;
+        // 单挂/替换语义：重置多挂列表（SRT 叠加由 addExternalSubtitleToStack 维护）
+        _activeExternalSubtitlePaths
+          ..clear()
+          ..add(path);
 
         // 更新轨道信息
         updateSubtitleTrackInfo('external_subtitle', {
@@ -428,6 +450,7 @@ class SubtitleManager extends ChangeNotifier {
 
         debugPrint('SubtitleManager: 外部字幕设置成功');
       } else if (path.isEmpty) {
+        _activeExternalSubtitlePaths.clear();
         _clearExternalSubtitleState();
         debugPrint('SubtitleManager: 外部字幕已清除');
       } else {
@@ -440,6 +463,59 @@ class SubtitleManager extends ChangeNotifier {
     } catch (e) {
       debugPrint('设置外部字幕失败: $e');
     }
+  }
+
+  /// 取消挂载一条外部字幕（从叠层/堆栈移除 + 清内核轨）
+  Future<void> removeExternalSubtitleFromStack(String path) async {
+    if (path.isEmpty) return;
+    _activeExternalSubtitlePaths.remove(path);
+    if (_currentExternalSubtitlePath == path) {
+      _currentExternalSubtitlePath = '';
+    }
+    try {
+      if (_player.activeSubtitleTracks.isNotEmpty) {
+        _player.activeSubtitleTracks = [];
+      }
+    } catch (e) {
+      debugPrint('SubtitleManager: 清除字幕轨失败: $e');
+    }
+    updateSubtitleTrackInfo('external_subtitle', <String, dynamic>{
+      'path': path,
+      'title': p.basename(path),
+      'isActive': false,
+      'isManualSet': true,
+    });
+    onSubtitleTrackChanged();
+    notifyListeners();
+  }
+
+  Future<void> addExternalSubtitleToStack(String path) async {
+    if (path.isEmpty) return;
+    final file = File(path);
+    if (!await file.exists()) {
+      debugPrint('SubtitleManager: 叠加字幕文件不存在: $path');
+      return;
+    }
+    if (_activeExternalSubtitlePaths.contains(path)) {
+      return;
+    }
+    _activeExternalSubtitlePaths.add(path);
+    _currentExternalSubtitlePath = path;
+    if (_shouldRenderExternalSubtitleInApp(path)) {
+      _activateAppRenderedExternalSubtitle(path);
+    } else {
+      // 非叠层类型（远程 ASS/SSA 等）：必须挂到内核字幕轨，否则选中无效果
+      _loadExternalSubtitleIntoPlayer(path, ++_subtitleLoadToken);
+    }
+    unawaited(preloadSubtitleFile(path));
+    updateSubtitleTrackInfo('external_subtitle', <String, dynamic>{
+      'path': path,
+      'title': p.basename(path),
+      'isActive': true,
+      'isManualSet': true,
+    });
+    onSubtitleTrackChanged();
+    notifyListeners();
   }
 
   Future<void> activateEmbyExternalSubtitle(
@@ -496,7 +572,7 @@ class SubtitleManager extends ChangeNotifier {
 
     final extension = p.extension(path).toLowerCase();
     // SRT 无特效，全平台用 App 内叠层渲染：不替换内核字幕轨（可叠加 ASS/多 SRT）
-    if (extension == '.srt') return true;
+    if (extension == '.srt' || extension == '.vtt') return true;
     // ASS/SSA 含样式特效，仅 Windows 走叠层（内核无法渲染 ASS 时），其余交给内核
     return Platform.isWindows &&
         (extension == '.ass' || extension == '.ssa');
@@ -529,12 +605,22 @@ class SubtitleManager extends ChangeNotifier {
   }
 
   String getCurrentExternalSubtitleTextAt(int positionMs) {
-    final path = getActiveExternalSubtitlePath();
-    if (path == null ||
-        path.isEmpty ||
-        !_shouldRenderExternalSubtitleInApp(path)) {
-      return '';
+    final single = getActiveExternalSubtitlePath();
+    if (single == null || single.isEmpty) return '';
+    final paths = _activeExternalSubtitlePaths.isNotEmpty
+        ? _activeExternalSubtitlePaths
+        : <String>[single];
+    final merged = <String>[];
+    for (final path in paths) {
+      if (!_shouldRenderExternalSubtitleInApp(path)) continue;
+      final text = _textAtPath(path, positionMs);
+      if (text.isNotEmpty && !merged.contains(text)) merged.add(text);
     }
+    return merged.join('\n');
+  }
+
+  String _textAtPath(String path, int positionMs) {
+    if (!_shouldRenderExternalSubtitleInApp(path)) return '';
 
     final cachedEntries = _subtitleCache[path];
     if (cachedEntries == null || cachedEntries.isEmpty) {
@@ -558,8 +644,7 @@ class SubtitleManager extends ChangeNotifier {
       activeContents.add(content);
     }
 
-    final text = activeContents.join('\n');
-    return text;
+    return activeContents.join('\n');
   }
 
   List<String> _snapshotCurrentSubtitleTrackSignatures() {

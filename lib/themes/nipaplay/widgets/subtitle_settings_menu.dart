@@ -92,6 +92,20 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
     }
   }
 
+  /// 多选中的字体名集合（点击 toggle；再点取消）
+  final Set<String> _selectedFonts = {};
+
+  void _toggleFontSelection(
+      VideoPlayerState videoState, String name) {
+    setState(() {
+      if (!_selectedFonts.remove(name)) {
+        _selectedFonts.add(name);
+      }
+    });
+    // 以最后点击的字体作为生效字体（sub-font 单值）
+    videoState.setSubtitleFontName(name);
+  }
+
   Future<void> _pickFontFile(VideoPlayerState videoState) async {
     // 多选导入：导入后不自动套用字体名，由用户从字体库列表自由选择
     final files = await openFiles(
@@ -800,20 +814,19 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
                                 name,
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: videoState.subtitleFontName == name
+                                  color: _selectedFonts.contains(name)
                                       ? menuColors.accent
                                       : menuColors.foreground,
                                 ),
                               ),
                               backgroundColor: menuColors.controlBackground,
                               side: BorderSide(
-                                color:
-                                    videoState.subtitleFontName == name
-                                        ? menuColors.accent
-                                        : menuColors.controlBorder,
+                                color: _selectedFonts.contains(name)
+                                    ? menuColors.accent
+                                    : menuColors.controlBorder,
                               ),
-                              onPressed: () =>
-                                  videoState.setSubtitleFontName(name),
+                              onPressed: () => _toggleFontSelection(
+                                  videoState, name),
                             ),
                         ],
                       ),

@@ -293,8 +293,40 @@ class _DanmakuSettingsMenuState extends State<DanmakuSettingsMenu> {
   String get _binaryDanmakuEffectKernelName =>
       _isDfmPlusKernel ? 'DFM+' : 'Next2';
 
+  Future<List<String>>? _danmakuFontLibraryFuture;
+
+  Future<void> _applyDanmakuFontFromLibrary(
+      VideoPlayerState videoState, String name, List<String> allNames) async {
+    // listSubtitleFonts 返回去掉扩展名的名称；按字体库目录拼回真实文件
+    try {
+      final baseDir = await StorageService.getAppStorageDirectory();
+      final fontsDir = Directory(p.join(baseDir.path, 'subtitle_fonts'));
+      if (await fontsDir.exists()) {
+        await for (final entity in fontsDir.list()) {
+          if (entity is! File) continue;
+          if (p.basenameWithoutExtension(entity.path) == name) {
+            final success =
+                await videoState.importDanmakuFontFile(entity.path);
+            if (!mounted) return;
+            if (success) {
+              BlurSnackBar.show(context, '已应用字体: $name');
+            } else {
+              BlurSnackBar.show(context, '字体加载失败');
+            }
+            return;
+          }
+        }
+      }
+      if (mounted) {
+        BlurSnackBar.show(context, '字体文件不存在，请重新导入');
+      }
+    } catch (e) {
+      debugPrint('应用字体库字体失败: $e');
+    }
+  }
+
   Future<void> _pickDanmakuFontFile(VideoPlayerState videoState) async {
-    final selected = await openFile(
+    final files = await openFiles(
       acceptedTypeGroups: const [
         XTypeGroup(
           label: 'Font',
@@ -302,15 +334,35 @@ class _DanmakuSettingsMenuState extends State<DanmakuSettingsMenu> {
         ),
       ],
     );
-    if (selected == null) return;
-
-    final success = await videoState.importDanmakuFontFile(selected.path);
+    if (files.isEmpty) return;
+    var count = 0;
+    for (final f in files) {
+      if (await videoState.importDanmakuFontFile(f.path)) count++;
+    }
     if (!mounted) return;
-    if (success) {
-      BlurSnackBar.show(context, '已应用字体: ${p.basename(selected.path)}');
+    if (count > 0) {
+      BlurSnackBar.show(context, '已应用 $count 个字体文件');
     } else {
       BlurSnackBar.show(context, '字体加载失败，请选择有效的字体文件');
     }
+  }
+
+  Future<void> _pickDanmakuFontFolder(VideoPlayerState videoState) async {
+    final directory = await getDirectoryPath();
+    if (directory == null) return;
+    final dir = Directory(directory);
+    if (!await dir.exists()) return;
+    var count = 0;
+    await for (final entity in dir.list()) {
+      if (entity is! File) continue;
+      final ext = p.extension(entity.path).toLowerCase();
+      if (ext == '.ttf' || ext == '.otf' || ext == '.ttc' || ext == '.otc') {
+        if (await videoState.importDanmakuFontFile(entity.path)) count++;
+      }
+    }
+    if (!mounted) return;
+    BlurSnackBar.show(
+        context, count > 0 ? '从文件夹导入 $count 个字体' : '文件夹中没有可用字体');
   }
 
   Future<void> _resetDanmakuFont(VideoPlayerState videoState) async {
@@ -739,6 +791,79 @@ class _DanmakuSettingsMenuState extends State<DanmakuSettingsMenu> {
               fontSize: 13,
             ),
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: BlurButton(
+                  text: '选择字体文件夹',
+                  icon: Icons.create_new_folder_outlined,
+                  onTap: () => _pickDanmakuFontFolder(videoState),
+                  expandHorizontally: true,
+                ),
+              ),
+            ],
+          ),
+          if (videoState.danmakuFontFilePath.trim().isNotEmpty) ...[
+            const SizedBox(height: 4),
+            // 默认与字幕字体文件夹同路径：展示 subtitle_fonts 字体库可点选
+            FutureBuilder<List<String>>(
+              future: _danmakuFontLibraryFuture ??=
+                  videoState.listSubtitleFonts(),
+              builder: (context, snapshot) {
+                final fonts = snapshot.data ?? const <String>[];
+                if (fonts.isEmpty) return const SizedBox.shrink();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '字体库（点击应用，与字幕字体同目录）',
+                      style: TextStyle(
+                        color: menuColors.secondaryForeground,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 120),
+                      child: SingleChildScrollView(
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            for (final name in fonts)
+                              ActionChip(
+                                label: Text(
+                                  name,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: videoState.danmakuFontFilePath
+                                            .trim()
+                                            .isNotEmpty &&
+                                        videoState.danmakuFontFilePath
+                                            .contains(name)
+                                        ? menuColors.accent
+                                        : menuColors.foreground,
+                                  ),
+                                ),
+                                backgroundColor: menuColors.controlBackground,
+                                side: BorderSide(
+                                  color: menuColors.controlBorder,
+                                ),
+                                onPressed: () async {
+                                  _applyDanmakuFontFromLibrary(videoState,
+                                      name, fonts);
+                                },
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
           const SizedBox(height: 8),
           Row(
             children: [

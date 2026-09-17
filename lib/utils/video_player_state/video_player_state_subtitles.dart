@@ -173,6 +173,12 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
     await _subtitleManager.preloadSubtitleFile(path);
   }
 
+  // 桥接方法：取消挂载外部字幕（从叠层/内核移除）
+  Future<void> removeExternalSubtitle(String path) async {
+    await _subtitleManager.removeExternalSubtitleFromStack(path);
+    _notifyListeners();
+  }
+
   // 桥接方法：获取当前活跃的外部字幕文件路径
   String? getActiveExternalSubtitlePath() {
     return _subtitleManager.getActiveExternalSubtitlePath();

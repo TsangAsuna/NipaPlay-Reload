@@ -1174,7 +1174,9 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   bool get currentExternalSubtitleIsSrt {
     final path = getActiveExternalSubtitlePath();
     if (path == null || path.isEmpty) return false;
-    return p.extension(path).toLowerCase() == '.srt';
+    final ext = p.extension(path).toLowerCase();
+    // .vtt 兼容：jellyfin/emby 远程字幕常为 vtt，与 SRT 同样走叠层+独立时轴
+    return ext == '.srt' || ext == '.vtt';
   }
 
   double? _parseSeekStepFrameRateNumericToken(String value) {

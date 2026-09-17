@@ -17,10 +17,18 @@ extension VideoPlayerStateLifecycle on VideoPlayerState {
       // 无论当前播放/暂停都同位置 seek 触发渲染（暂停时保持暂停态不变）。
       if (hasVideo && _position.inMilliseconds > 0) {
         Future<void>.delayed(const Duration(milliseconds: 200), () {
-          if (hasVideo) {
-            debugPrint('[VideoPlayerState] 回前台强制刷新画面帧');
-            player.seek(position: _position.inMilliseconds);
-          }
+          if (!hasVideo) return;
+          final pos = _position.inMilliseconds;
+          debugPrint('[VideoPlayerState] 回前台强制刷新画面帧 pos=$pos');
+          // 同位置 seek 会被解码器优化掉（日志刷新但画面不重绘）：
+          // 先退 90ms 强制解码新帧，再回到原位置，暂停态保持不变。
+          final back = pos > 200 ? pos - 90 : 0;
+          player.seek(position: back);
+          Future<void>.delayed(const Duration(milliseconds: 160), () {
+            if (hasVideo) {
+              player.seek(position: pos);
+            }
+          });
         });
       }
     }

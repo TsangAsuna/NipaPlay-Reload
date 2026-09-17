@@ -332,6 +332,14 @@ class _DanmakuSettingsMenuState extends State<DanmakuSettingsMenu> {
         XTypeGroup(
           label: 'Font',
           extensions: ['ttf', 'otf', 'ttc', 'otc'],
+          // iOS 上 file_selector 只认 UTI，缺 extended 会弹不出选择器
+          uniformTypeIdentifiers: [
+            'public.truetype-font',
+            'public.opentype-font',
+            'public.font',
+            'public.data',
+            'public.item',
+          ],
         ),
       ],
     );
@@ -349,6 +357,11 @@ class _DanmakuSettingsMenuState extends State<DanmakuSettingsMenu> {
   }
 
   Future<void> _pickDanmakuFontFolder(VideoPlayerState videoState) async {
+    // iOS 上 file_selector 的 getDirectoryPath 不受支持，改用多选字体文件兜底
+    if (io.Platform.isIOS) {
+      await _pickDanmakuFontFile(videoState);
+      return;
+    }
     final directory = await getDirectoryPath();
     if (directory == null) return;
     final dir = Directory(directory);
@@ -805,9 +818,9 @@ class _DanmakuSettingsMenuState extends State<DanmakuSettingsMenu> {
               ),
             ],
           ),
-          if (videoState.danmakuFontFilePath.trim().isNotEmpty) ...[
+          ...[
             const SizedBox(height: 4),
-            // 默认与字幕字体文件夹同路径：展示 subtitle_fonts 字体库可点选
+            // 默认与字幕字体文件夹同路径（subtitle_fonts）：总是展示字体库可点选
             FutureBuilder<List<String>>(
               future: _danmakuFontLibraryFuture ??=
                   videoState.listSubtitleFonts(),

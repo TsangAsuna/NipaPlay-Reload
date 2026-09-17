@@ -472,7 +472,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
             onChangeEnd: (value) =>
                 _handleSubtitleDelaySliderEnd(videoState, value),
             label: videoState.currentExternalSubtitleIsSrt
-                ? 'SRT 时轴偏移（独立）'
+                ? 'SRT 时轴偏移'
                 : '字幕延迟',
             displayTextBuilder: _formatDelayDisplay,
             min: videoState.subtitleDelaySliderMinSeconds,
@@ -552,7 +552,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
           if (videoState.currentExternalSubtitleIsSrt) ...[
             const SizedBox(height: 16),
             Text(
-              'SRT 时轴偏移（独立，不影响内嵌/ASS）',
+              'SRT 时轴偏移（不影响内嵌/ASS）',
               style: TextStyle(
                 color: menuColors.accent,
                 fontSize: 13,

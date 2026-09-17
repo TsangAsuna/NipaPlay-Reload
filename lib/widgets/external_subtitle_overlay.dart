@@ -164,7 +164,9 @@ class ExternalSubtitleOverlay extends StatelessWidget {
       VideoPlayerState.minSubtitlePosition,
       VideoPlayerState.maxSubtitlePosition,
     );
-    return ((normalized / 100) * 1.6 - 0.8).clamp(-0.8, 0.8).toDouble();
+    // 0=屏幕顶 100=屏幕底，允许拖到视频外（黑边区）：overlay 是 Positioned.fill
+    // 占满整个播放舞台（含视频外区域），视频面 Center(AspectRatio) 居中留黑边。
+    return (normalized / 100) * 2.0 - 1.0;
   }
 }
 

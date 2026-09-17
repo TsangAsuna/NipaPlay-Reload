@@ -328,10 +328,8 @@ class _DashboardHomePageState extends State<DashboardHomePage>
           lifecycle == AppLifecycleState.detached) {
         return;
       }
-      // 被 SwitchableView/IndexedStack 切走时 TickerMode disabled，同样不轮播
-      if (!(context.getInheritedWidgetOfExactType<TickerMode>()?.enabled ?? true)) {
-        return;
-      }
+      // 首页被播放页覆盖或切走时（IndexedStack 非当前项）TickerMode=false，停轮播
+      if (!TickerMode.of(context)) return;
       if (_isAutoSwitching && _recommendedItems.length >= 5 && mounted) {
         _currentHeroBannerIndex = (_currentHeroBannerIndex + 1) % 5;
         _heroBannerIndexNotifier.value = _currentHeroBannerIndex;

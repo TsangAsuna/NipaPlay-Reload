@@ -220,25 +220,25 @@ extension DashboardHomePageHeroBuild on _DashboardHomePageState {
                       color: Colors.white.withValues(alpha: 0.9),
                       width: 1,
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.star_rounded,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.star_rounded,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        item.rating!.toStringAsFixed(1),
+                        style: TextStyle(
                           color: Colors.white,
-                          size: 16,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
                         ),
-                        SizedBox(width: 4),
-                        Text(
-                          item.rating!.toStringAsFixed(1),
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),

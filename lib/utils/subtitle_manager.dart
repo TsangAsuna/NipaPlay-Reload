@@ -472,12 +472,15 @@ class SubtitleManager extends ChangeNotifier {
     if (_currentExternalSubtitlePath == path) {
       _currentExternalSubtitlePath = '';
     }
-    try {
-      if (_player.activeSubtitleTracks.isNotEmpty) {
-        _player.activeSubtitleTracks = [];
+    // 只有非叠层（占内核轨的 ASS/SSA）才清内核轨；叠层 SRT 移除不动内嵌轨
+    if (!_shouldRenderExternalSubtitleInApp(path)) {
+      try {
+        if (_player.activeSubtitleTracks.isNotEmpty) {
+          _player.activeSubtitleTracks = [];
+        }
+      } catch (e) {
+        debugPrint('SubtitleManager: 清除字幕轨失败: $e');
       }
-    } catch (e) {
-      debugPrint('SubtitleManager: 清除字幕轨失败: $e');
     }
     updateSubtitleTrackInfo('external_subtitle', <String, dynamic>{
       'path': path,
@@ -568,12 +571,13 @@ class SubtitleManager extends ChangeNotifier {
   bool _shouldFixExternalSubtitleEncoding() =>
       !kIsWeb && (_isMdkKernel() || _isMediaKitKernel());
   bool _shouldRenderExternalSubtitleInApp(String path) {
-    if (kIsWeb || !_isMdkKernel()) return false;
+    if (kIsWeb) return false;
 
     final extension = p.extension(path).toLowerCase();
-    // SRT 无特效，全平台用 App 内叠层渲染：不替换内核字幕轨（可叠加 ASS/多 SRT）
+    // SRT/VTT 无特效，全平台 App 内叠层渲染（与内核无关）：
+    // 不占内核字幕轨 -> 可与 mkv 内嵌轨共存、可热切换、可拖动
     if (extension == '.srt' || extension == '.vtt') return true;
-    // ASS/SSA 含样式特效，仅 Windows 走叠层（内核无法渲染 ASS 时），其余交给内核
+    // ASS/SSA 含样式特效，Windows 内核无法渲染时走叠层，其余交给内核
     return Platform.isWindows &&
         (extension == '.ass' || extension == '.ssa');
   }

@@ -321,6 +321,17 @@ class _DashboardHomePageState extends State<DashboardHomePage>
   void _startAutoSwitch() {
     _autoSwitchTimer?.cancel();
     _autoSwitchTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      // 后台/不活跃时跳过轮播动画，避免持续占用 GPU（M1 也发烫的主因之一）
+      final lifecycle = WidgetsBinding.instance.lifecycleState;
+      if (lifecycle == AppLifecycleState.paused ||
+          lifecycle == AppLifecycleState.inactive ||
+          lifecycle == AppLifecycleState.detached) {
+        return;
+      }
+      // 被 SwitchableView/IndexedStack 切走时 TickerMode disabled，同样不轮播
+      if (!(context.getInheritedWidgetOfExactType<TickerMode>()?.enabled ?? true)) {
+        return;
+      }
       if (_isAutoSwitching && _recommendedItems.length >= 5 && mounted) {
         _currentHeroBannerIndex = (_currentHeroBannerIndex + 1) % 5;
         _heroBannerIndexNotifier.value = _currentHeroBannerIndex;

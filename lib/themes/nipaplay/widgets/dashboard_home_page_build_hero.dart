@@ -135,8 +135,8 @@ extension DashboardHomePageHeroBuild on _DashboardHomePageState {
       {bool compact = false}) {
     final lowResolutionBlurSigma =
         context.watch<AppearanceSettingsProvider>().diffuseLowResolutionPosters
-            ? 40.0
-            : 3.0;
+            ? 8.0
+            : 0.0;
     final card = Container(
       key: ValueKey('hero_banner_${item.id}_${item.source.name}'), // 添加唯一key
       margin: _isLargeScreenModeActive
@@ -209,28 +209,16 @@ extension DashboardHomePageHeroBuild on _DashboardHomePageState {
               right: 16,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(
-                      sigmaX: context
-                              .watch<AppearanceSettingsProvider>()
-                              .enableWidgetBlurEffect
-                          ? 25
-                          : 0,
-                      sigmaY: context
-                              .watch<AppearanceSettingsProvider>()
-                              .enableWidgetBlurEffect
-                          ? 25
-                          : 0),
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(1.0),
-                        width: 1,
-                      ),
+                // BackdropFilter 离屏渲染昂贵；改用纯色半透明（视觉等价，零模糊开销）
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.9),
+                      width: 1,
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -402,8 +390,8 @@ extension DashboardHomePageHeroBuild on _DashboardHomePageState {
   Widget _buildSmallRecommendationCard(RecommendedItem item, int index) {
     final lowResolutionBlurSigma =
         context.watch<AppearanceSettingsProvider>().diffuseLowResolutionPosters
-            ? 40.0
-            : 3.0;
+            ? 8.0
+            : 0.0;
     final card = Container(
       key: ValueKey(
           'small_card_${item.id}_${item.source.name}_$index'), // 添加唯一key包含索引

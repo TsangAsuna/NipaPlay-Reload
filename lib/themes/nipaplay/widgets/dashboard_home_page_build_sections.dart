@@ -973,7 +973,17 @@ extension DashboardHomePageSectionsBuild on _DashboardHomePageState {
           children: [
             Container(color: Colors.white),
             ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
+              imageFilter: ImageFilter.blur(
+                  sigmaX: context
+                          .watch<AppearanceSettingsProvider>()
+                          .diffuseLowResolutionPosters
+                      ? 8
+                      : 0,
+                  sigmaY: context
+                          .watch<AppearanceSettingsProvider>()
+                          .diffuseLowResolutionPosters
+                      ? 8
+                      : 0),
               child: MediaServerAwareCachedNetworkImage(
                 imageUrl: imageUrl,
                 fit: BoxFit.cover,

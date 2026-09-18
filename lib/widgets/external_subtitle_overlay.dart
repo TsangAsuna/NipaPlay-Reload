@@ -241,9 +241,9 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                               // dragArea 在底层（含 textBox + 长按拖动 + 点框外收框）；
                               // 按钮/手柄在 dragArea 之上（Stack 上层优先命中，点击按钮不冒泡收框）
                               final Widget boxLayer = Transform.translate(
-                                offset: const Offset(-24, -24),
+                                offset: const Offset(-19, -19),
                                 child: Padding(
-                                  padding: const EdgeInsets.all(24),
+                                  padding: const EdgeInsets.all(19),
                                   child: Stack(
                                     clipBehavior: Clip.none,
                                     children: [
@@ -317,16 +317,22 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                               opacity:
                                   videoState.subtitleOpacity.clamp(0.0, 1.0).toDouble(),
                               child: Padding(
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: 24 + videoState.subtitleMarginX,
-                                  vertical: 16 + videoState.subtitleMarginY,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 16,
                                 ),
                                 child: Align(
                                   alignment: Alignment(
                                     _resolveHorizontalAlignment(videoState.subtitleAlignX),
                                     _resolveVerticalAlignment(videoState.subtitlePosition),
                                   ),
-                                  child: positionedContent,
+                                  child: Transform.translate(
+                                                                      offset: Offset(
+                                                                        videoState.subtitleMarginX,
+                                                                        videoState.subtitleMarginY,
+                                                                      ),
+                                                                      child: positionedContent,
+                                                                    ),
                                 ),
                               ),
                             );

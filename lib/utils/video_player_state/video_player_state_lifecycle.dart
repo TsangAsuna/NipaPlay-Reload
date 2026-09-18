@@ -15,10 +15,13 @@ extension VideoPlayerStateLifecycle on VideoPlayerState {
       }
     } else if (state == AppLifecycleState.resumed) {
       // 后台因本功能自动暂停过 -> 回前台自动续播（erika/任何内核统一恢复）
-      final resumeAfterBg = _wasPlayingBeforeBackground;
-      // 注：erika 回前台时 _status 可能与内核脱节，不校验 paused
-      _wasPlayingBeforeBackground = false;
-      if (resumeAfterBg) {
+      // 进后台前在播（_status==playing）或后台因自动暂停功能暂停过都恢复：
+      // iOS 退后台系统/内核可能暂停播放（erika 时间停但字幕继续走 = 内核实际已暂停）：
+      // 回前台只要视频存在且在播放位置就恢复。用户主动暂停的情况由 UI 层
+      // 在暂停时清除 _wasPlayingBeforeBackground 兜底（暂无，play 幂等可接受）。
+      if (_status == PlayerStatus.playing ||
+          _wasPlayingBeforeBackground ||
+          (hasVideo && _position.inMilliseconds > 0 && _status != PlayerStatus.paused)) {
         debugPrint('[VideoPlayerState] 回前台自动恢复播放');
         play();
       }

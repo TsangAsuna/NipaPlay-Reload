@@ -316,7 +316,12 @@ class SettingsProvider with ChangeNotifier {
   Future<void> setDanmakuSupersample(double value) async {
     _danmakuSupersample = value;
     debugPrint('[SettingsProvider] 弹幕超采样设置: $value');
-    await _prefs.setDouble(SettingsKeys.danmakuSupersample, value);
+    try {
+      await _prefs.setDouble(SettingsKeys.danmakuSupersample, value);
+      debugPrint('[SettingsProvider] 弹幕超采样已写入: $value');
+    } catch (e) {
+      debugPrint('[SettingsProvider] 弹幕超采样写入失败: $e');
+    }
     notifyListeners();
   }
 }

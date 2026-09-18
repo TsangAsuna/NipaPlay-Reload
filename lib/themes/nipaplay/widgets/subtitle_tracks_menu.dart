@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:nipaplay/services/subtitle_service.dart';
 import 'package:nipaplay/utils/video_player_state.dart';
 import 'package:nipaplay/utils/player_event_log.dart';
 import 'package:provider/provider.dart';
@@ -125,6 +126,10 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
 
       await prefs.setString(
           'external_subtitles_$videoHashKey', json.encode(_externalSubtitles));
+
+      // 直写 prefs 绕过了 SubtitleService 的内存缓存，失效它保证
+      // Cupertino 面板下次读取到最新列表（避免陈旧列表/按索引删错）。
+      SubtitleService().clearCache(videoState.currentVideoPath!);
 
       // 获取当前激活的字幕索引
       final activeTrackIndex = _getActiveExternalSubtitleIndex();

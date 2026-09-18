@@ -9,6 +9,7 @@ import 'subtitle_parser.dart';
 import 'storage_service.dart';
 import '../../player_abstraction/player_abstraction.dart';
 import 'package:nipaplay/services/remote_subtitle_service.dart';
+import 'package:nipaplay/services/subtitle_service.dart';
 import 'package:nipaplay/services/emby_track_application.dart' as emby_tracks;
 import 'package:nipaplay/utils/media_source_utils.dart';
 import 'package:nipaplay/utils/subtitle_file_utils.dart';
@@ -319,6 +320,9 @@ class SubtitleManager extends ChangeNotifier {
       } else {
         await prefs.remove(lastActiveKey);
       }
+      // 此处直写 prefs 绕过了 SubtitleService 的内存缓存（Cupertino 面板
+      // 经缓存读取），失效它避免面板看到陈旧列表、按索引删错条目。
+      SubtitleService().clearCache(videoPath);
     } catch (e) {
       debugPrint('SubtitleManager: 持久化外部字幕选择失败: $e');
     }

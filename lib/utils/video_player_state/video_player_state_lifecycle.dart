@@ -7,21 +7,21 @@ extension VideoPlayerStateLifecycle on VideoPlayerState {
 
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
+      // 记录真实播放意图：进后台时是否处于播放状态。手动暂停后切后台
+      // （status==paused）置 false，回前台不再被强制续播；播放中切后台
+      // 置 true，回前台自动恢复（iOS 系统/内核可能已暂停内核）。
+      _wasPlayingBeforeBackground = _status == PlayerStatus.playing;
       if (!_pauseOnBackground) return;
-      if (_status == PlayerStatus.playing) {
+      if (_wasPlayingBeforeBackground) {
         debugPrint('[VideoPlayerState] 应用进入后台，自动暂停播放');
-        _wasPlayingBeforeBackground = true;
         pause();
       }
     } else if (state == AppLifecycleState.resumed) {
       // 后台因本功能自动暂停过 -> 回前台自动续播（erika/任何内核统一恢复）
-      // 进后台前在播（_status==playing）或后台因自动暂停功能暂停过都恢复：
-      // iOS 退后台系统/内核可能暂停播放（erika 时间停但字幕继续走 = 内核实际已暂停）：
-      // 回前台只要视频存在且在播放位置就恢复。用户主动暂停的情况由 UI 层
-      // 在暂停时清除 _wasPlayingBeforeBackground 兜底（暂无，play 幂等可接受）。
-      // erika/libmpv 在 iOS 退后台时可能被系统暂停（无论是否开启自动暂停），
-      // 回前台无条件恢复（play 幂等；用户主动暂停会在 UI 层清标志，暂无副作用）。
-      if (hasVideo) {
+      // iOS 退后台系统/内核可能暂停播放（无论是否开启自动暂停）：
+      // 仅在进后台前确实在播时恢复；用户主动暂停的意图不被覆盖。
+      if (hasVideo && _wasPlayingBeforeBackground) {
+        _wasPlayingBeforeBackground = false;
         debugPrint('[VideoPlayerState] 回前台恢复播放');
         logPlayerEvent(
           'Player',

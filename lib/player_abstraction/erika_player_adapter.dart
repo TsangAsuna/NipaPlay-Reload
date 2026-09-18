@@ -633,6 +633,7 @@ class ErikaPlayerAdapter
   String? _lastNativeError;
   int _lastPositionMs = 0;
   DateTime _lastPositionUpdate = DateTime.now();
+  Future<void>? _inFlightPlay;
   int? _pendingSeekTargetMs;
   DateTime? _seekFenceUntil;
   bool _disposed = false;
@@ -760,6 +761,9 @@ class ErikaPlayerAdapter
     }
     switch (value) {
       case PlayerPlaybackState.playing:
+        // 同步置位表达意图：后续的 pauseDirectly 不再被旧状态门拦下，
+        // 而是通过在途 play 等待 + 原生命令顺序保证最终暂停生效。
+        _state = PlayerPlaybackState.playing;
         _dispatchStateCommand('play', playDirectly);
         break;
       case PlayerPlaybackState.paused:
@@ -769,6 +773,8 @@ class ErikaPlayerAdapter
         _state = PlayerPlaybackState.stopped;
         _lastPositionMs = 0;
         _playbackWatchdogTimer?.cancel();
+        _positionEventCount = 0;
+        _lastNativePositionEventAt = null;
         _dispatchStateCommand('stop', _player.stop);
         break;
     }
@@ -911,6 +917,9 @@ class ErikaPlayerAdapter
       _lastDanmakuJson = null;
       _lastDanmakuEnabled = null;
       _lastDanmakuGlobalOffset = null;
+      // open() 会重置内核侧弹幕配置：清掉去重快照，让下一次配置全量下发，
+      // 否则切集后设置未变时配置被差量去重为空补丁，新媒体样式回退内核默认。
+      _lastAppliedDanmakuConfig = null;
     }
   }
 
@@ -1079,6 +1088,18 @@ class ErikaPlayerAdapter
   @override
   Future<void> playDirectly() async {
     _ensureSupported();
+    final playFuture = _executePlay();
+    _inFlightPlay = playFuture;
+    try {
+      await playFuture;
+    } finally {
+      if (identical(_inFlightPlay, playFuture)) {
+        _inFlightPlay = null;
+      }
+    }
+  }
+
+  Future<void> _executePlay() async {
     await _player.ensureCreated();
     await _player.play();
     _state = PlayerPlaybackState.playing;
@@ -1090,7 +1111,20 @@ class ErikaPlayerAdapter
   Future<void> pauseDirectly() async {
     _ensureSupported();
     _playbackWatchdogTimer?.cancel();
-    if (_state != PlayerPlaybackState.playing) {
+    // 等待在途 play 完成后再下发原生 pause：暂停态 seek 的
+    // play→(延迟)→pause 序列必须保证原生命令顺序（方法通道按调用序
+    // 投递），否则 pause 会先于 play 到达内核、被随后完成的 play 覆盖，
+    // 视频意外转为播放。
+    final inFlight = _inFlightPlay;
+    if (inFlight != null) {
+      try {
+        await inFlight;
+      } catch (_) {}
+      if (_disposed) {
+        return;
+      }
+    }
+    if (_state == PlayerPlaybackState.stopped) {
       return;
     }
     await _player.ensureCreated();
@@ -1645,6 +1679,10 @@ class ErikaPlayerAdapter
     }
     _playbackWatchdogTimer?.cancel();
     final restorePositionMs = _lastPositionMs;
+    // open() 会重置内核侧弹幕配置：先截获当前配置用于重放，同时清空去重
+    // 快照，保证重放后的下一次常规配置下发也不会被差量去重吞掉。
+    final configToReplay = _lastAppliedDanmakuConfig;
+    _lastAppliedDanmakuConfig = null;
     debugPrint(
       '[Erika] retryCurrentMediaLoad: 重开 media=$_media '
       'restorePos=${restorePositionMs}ms',
@@ -1698,7 +1736,7 @@ class ErikaPlayerAdapter
           );
         }
       }
-      final appliedConfig = _lastAppliedDanmakuConfig;
+      final appliedConfig = configToReplay;
       if (appliedConfig != null && !appliedConfig.isEmpty) {
         unawaited(
           _player

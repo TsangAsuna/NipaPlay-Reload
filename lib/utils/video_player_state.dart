@@ -608,6 +608,8 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   final String _subtitleOverrideModeKey = 'subtitle_override_mode';
     final String _srtSubtitleDelayKey = 'srt_subtitle_delay';
     double _subtitleScale = defaultSubtitleScale;
+  // 字体列表缓存（listSubtitleFonts 复用，面板即时显示）
+  static List<String>? _cachedSubtitleFontNames;
   double _srtSubtitleScale = defaultSubtitleScale;
   double _subtitleDelaySeconds = defaultSubtitleDelaySeconds;
   double _srtSubtitleDelaySeconds = defaultSubtitleDelaySeconds;

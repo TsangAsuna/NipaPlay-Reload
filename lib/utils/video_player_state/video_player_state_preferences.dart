@@ -2108,7 +2108,8 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
 
   /// 列出 subtitle_fonts 字体库中的字体文件名（不含扩展名），用于选择字体样式。
   Future<List<String>> listSubtitleFonts() async {
-    final cached = _cachedSubtitleFontNames;
+    // extension 内不能非限定引用宿主类的静态成员，必须带 VideoPlayerState. 前缀。
+    final cached = VideoPlayerState._cachedSubtitleFontNames;
     if (cached != null) return cached;
     try {
       final baseDir = await StorageService.getAppStorageDirectory();
@@ -2124,7 +2125,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
         }
       }
       names.sort();
-      _cachedSubtitleFontNames = names;
+      VideoPlayerState._cachedSubtitleFontNames = names;
       return names;
     } catch (e) {
       debugPrint('[VideoPlayerState] 列出字体库失败: $e');

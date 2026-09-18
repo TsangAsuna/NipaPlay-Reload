@@ -23,6 +23,10 @@ extension VideoPlayerStateLifecycle on VideoPlayerState {
       // 回前台无条件恢复（play 幂等；用户主动暂停会在 UI 层清标志，暂无副作用）。
       if (hasVideo) {
         debugPrint('[VideoPlayerState] 回前台恢复播放');
+        logPlayerEvent(
+          'Player',
+          '回前台恢复播放（内核 ${player.getPlayerKernelName()}）',
+        );
         play();
       }
       // 回前台强制刷新一帧：iOS 切后台后渲染可能没跟上（画面灰/缺失），

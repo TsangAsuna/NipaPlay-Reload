@@ -389,6 +389,12 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
   // 双指长按弹出 SRT 设置面板：延迟滑块+手动输入联动（独立于全局）、字体选择、颜色调色板
   void _showSrtSettingsPanel(BuildContext context, VideoPlayerState videoState) {
     if (!videoState.currentExternalSubtitleIsSrt) return;
+    // 字体列表只扫描一次（面板存续期间复用同一个 Future，避免 Consumer
+    // 重建时反复触发 FutureBuilder 重新扫描）。
+    final fontListFuture = _listSubtitleFontNames(videoState);
+    // 历史缓存/远程下载的字体可能从未注册进引擎，打开面板时补注册，
+    // 否则选中的 fontFamily 会静默回退默认字体。
+    unawaited(videoState.ensureSelectedSubtitleFontsRegistered());
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xF0101010),
@@ -504,62 +510,72 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                 const SizedBox(height: 14),
                 Text('字体（可多选）', style: TextStyle(color: Colors.white70, fontSize: 13)),
                 const SizedBox(height: 6),
-                FutureBuilder<List<String>>(
-                  future: _listSubtitleFontNames(videoState),
-                  builder: (context, snapshot) {
-                    final fonts = snapshot.data ?? <String>[];
-                    final current = videoState.subtitleFontName;
-                    // 当前字体按逗号拆分（多选字体为逗号分隔 fallback 列表）
-                    final selected = current
-                        .split(',')
-                        .map((e) => e.trim())
-                        .where((e) => e.isNotEmpty)
-                        .toSet();
-                    return Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final f in fonts)
-                          FilterChip(
-                            label: Text(f, style: const TextStyle(fontSize: 12)),
-                            selected: selected.contains(f),
-                            onSelected: (sel) {
-                              final next = sel
-                                  ? [...selected, f].join(',')
-                                  : selected.where((e) => e != f).join(',');
-                              videoState.setSubtitleFontName(next);
-                            },
-                          ),
-                      ],
+                // Consumer 包一层：点选字体后立即反映选中态（之前要关掉面板
+                // 重开才能看到多选/取消的变化）。
+                Consumer<VideoPlayerState>(
+                  builder: (context, vs, _) {
+                    return FutureBuilder<List<String>>(
+                      future: fontListFuture,
+                      builder: (context, snapshot) {
+                        final fonts = snapshot.data ?? <String>[];
+                        final current = vs.subtitleFontName;
+                        // 当前字体按逗号拆分（多选字体为逗号分隔 fallback 列表）
+                        final selected = current
+                            .split(',')
+                            .map((e) => e.trim())
+                            .where((e) => e.isNotEmpty)
+                            .toSet();
+                        return Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final f in fonts)
+                              FilterChip(
+                                label: Text(f, style: const TextStyle(fontSize: 12)),
+                                selected: selected.contains(f),
+                                onSelected: (sel) {
+                                  final next = sel
+                                      ? [...selected, f].join(',')
+                                      : selected.where((e) => e != f).join(',');
+                                  videoState.setSubtitleFontName(next);
+                                },
+                              ),
+                          ],
+                        );
+                      },
                     );
                   },
                 ),
                 const SizedBox(height: 14),
                 Text('文字颜色', style: TextStyle(color: Colors.white70, fontSize: 13)),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    for (final color in palette)
-                      GestureDetector(
-                        onTap: () => videoState.setSubtitleColor(color),
-                        child: Container(
-                          width: 30,
-                          height: 30,
-                          decoration: BoxDecoration(
-                            color: color,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: videoState.subtitleColor.toARGB32() == color.toARGB32()
-                                  ? Colors.amber
-                                  : Colors.white24,
-                              width: 2,
+                Consumer<VideoPlayerState>(
+                  builder: (context, vs, _) {
+                    return Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (final color in palette)
+                          GestureDetector(
+                            onTap: () => videoState.setSubtitleColor(color),
+                            child: Container(
+                              width: 30,
+                              height: 30,
+                              decoration: BoxDecoration(
+                                color: color,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: vs.subtitleColor.toARGB32() == color.toARGB32()
+                                      ? Colors.amber
+                                      : Colors.white24,
+                                  width: 2,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                  ],
+                      ],
+                    );
+                  },
                 ),
               ],
             ),

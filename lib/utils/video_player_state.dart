@@ -25,6 +25,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:nipaplay/utils/storage_service.dart';
+import 'package:nipaplay/utils/player_event_log.dart';
 import 'package:path/path.dart' as p;
 
 import 'globals.dart' as globals;
@@ -610,6 +611,9 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
     double _subtitleScale = defaultSubtitleScale;
   // 字体列表缓存（listSubtitleFonts 复用，面板即时显示）
   static List<String>? _cachedSubtitleFontNames;
+  // 已注册进 Flutter 引擎的字幕字体文件路径（FontLoader 重复加载同一族会抛错）
+  static final Set<String> _registeredSubtitleRuntimeFontPaths = <String>{};
+  static bool _subtitleFontRegistrationWarned = false;
   double _srtSubtitleScale = defaultSubtitleScale;
   double _subtitleDelaySeconds = defaultSubtitleDelaySeconds;
   double _srtSubtitleDelaySeconds = defaultSubtitleDelaySeconds;

@@ -6,6 +6,7 @@ import 'package:nipaplay/l10n/app_locale_utils.dart';
 import 'package:nipaplay/models/danmaku_auto_load_strategy.dart';
 import 'package:nipaplay/utils/external_player_utils.dart';
 import 'package:nipaplay/utils/globals.dart' as globals;
+import 'package:nipaplay/utils/player_event_log.dart';
 
 class SettingsProvider with ChangeNotifier {
   late SharedPreferences _prefs;
@@ -146,14 +147,34 @@ class SettingsProvider with ChangeNotifier {
     _externalPlayerConsoleWindowMode =
         _prefs.getBool(SettingsKeys.externalPlayerConsoleWindowMode) ?? false;
     _githubProxyUrl = _prefs.getString(SettingsKeys.githubProxyUrl) ?? '';
-    // 弹幕超采样：iPad 默认 1.5x；其他平板和低 DPR 桌面设备维持 2x。
-    // 已保存过设置的用户继续使用其现有值，仅影响首次默认值。
-    _danmakuSupersample = _prefs.getDouble(SettingsKeys.danmakuSupersample) ??
-        _defaultDanmakuSupersample();
-    debugPrint('[SettingsProvider] 弹幕超采样加载: ' +
-        (_prefs.getDouble(SettingsKeys.danmakuSupersample) ?? _defaultDanmakuSupersample()).toString());
+    // 弹幕超采样：权威存档是字符串键 danmakuSupersampleV2（'0.0'/'1.5'/'2.0'），
+    // 旧 double 键（含关闭=0.0 的场景）只作迁移来源；两者在保存时同步写入。
+    final v2Stored = _prefs.getString(SettingsKeys.danmakuSupersampleV2);
+    final legacyStored = _prefs.getDouble(SettingsKeys.danmakuSupersample);
+    _danmakuSupersample = _parseDanmakuSupersample(v2Stored) ??
+        (legacyStored ?? _defaultDanmakuSupersample());
+    debugPrint('[SettingsProvider] 弹幕超采样加载: v2=$v2Stored '
+        'legacy=$legacyStored -> $_danmakuSupersample');
+    logPlayerEvent(
+      'Danmaku',
+      '弹幕超采样加载: v2=$v2Stored legacy=$legacyStored -> '
+          '$_danmakuSupersample${_danmakuSupersample == 0.0 ? '（关闭）' : 'x'}',
+    );
     notifyListeners();
   }
+
+  /// 解析规范化字符串（'0.0'/'1.5'/'2.0'，容忍 '0'/'关闭' 等写法），非法返回 null。
+  static double? _parseDanmakuSupersample(String? stored) {
+    if (stored == null) return null;
+    final trimmed = stored.trim();
+    if (trimmed.isEmpty) return null;
+    if (trimmed == '关闭') return 0.0;
+    final value = double.tryParse(trimmed);
+    if (value == null || value < 0 || value > 4) return null;
+    return value;
+  }
+
+  static String _encodeDanmakuSupersample(double value) => value.toString();
 
   // --- Setters ---
 
@@ -314,13 +335,26 @@ class SettingsProvider with ChangeNotifier {
   }
 
   Future<void> setDanmakuSupersample(double value) async {
-    _danmakuSupersample = value;
-    debugPrint('[SettingsProvider] 弹幕超采样设置: $value');
+    final normalized = value < 0 ? 0.0 : (value > 4 ? 4.0 : value);
+    _danmakuSupersample = normalized;
+    debugPrint('[SettingsProvider] 弹幕超采样设置: $normalized');
     try {
-      await _prefs.setDouble(SettingsKeys.danmakuSupersample, value);
-      debugPrint('[SettingsProvider] 弹幕超采样已写入: $value');
+      // 字符串键为权威存档（0.0=关闭也必须落盘），double 旧键同步写以兼容降级。
+      await _prefs.setString(
+        SettingsKeys.danmakuSupersampleV2,
+        _encodeDanmakuSupersample(normalized),
+      );
+      await _prefs.setDouble(SettingsKeys.danmakuSupersample, normalized);
+      debugPrint('[SettingsProvider] 弹幕超采样已写入: '
+          'v2=${_encodeDanmakuSupersample(normalized)} legacy=$normalized');
+      logPlayerEvent(
+        'Danmaku',
+        '弹幕超采样已设置并持久化: '
+            '${normalized == 0.0 ? '关闭(0.0)' : '${normalized}x'}',
+      );
     } catch (e) {
       debugPrint('[SettingsProvider] 弹幕超采样写入失败: $e');
+      logPlayerEvent('Danmaku', '弹幕超采样写入失败: $e', level: 'ERROR');
     }
     notifyListeners();
   }

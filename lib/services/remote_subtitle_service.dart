@@ -12,6 +12,7 @@ import 'package:nipaplay/services/smb2_native_service.dart';
 import 'package:nipaplay/services/smb_service.dart';
 import 'package:nipaplay/services/webdav_service.dart';
 import 'package:nipaplay/services/dandanplay_remote_service.dart';
+import 'package:nipaplay/utils/player_event_log.dart';
 import 'package:nipaplay/utils/media_source_utils.dart';
 import 'package:nipaplay/utils/storage_service.dart';
 
@@ -197,16 +198,28 @@ class RemoteSubtitleService {
       String videoPath) async {
     if (kIsWeb || videoPath.isEmpty) return const [];
 
+    List<RemoteSubtitleCandidate> candidates;
     final managedStream = _parseManagedLibraryStreamUrl(videoPath);
     if (managedStream != null) {
-      return _listManagedLibraryCandidates(managedStream);
+      candidates = await _listManagedLibraryCandidates(managedStream);
+    } else {
+      final sharedStream = _parseSharedRemoteStreamUrl(videoPath);
+      if (sharedStream != null) {
+        candidates = await _listSharedRemoteCandidates(sharedStream);
+      } else {
+        candidates = await _listCandidatesForResolvedPath(videoPath);
+      }
     }
 
-    final sharedStream = _parseSharedRemoteStreamUrl(videoPath);
-    if (sharedStream != null) {
-      return _listSharedRemoteCandidates(sharedStream);
-    }
+    logPlayerEvent(
+      'Subtitle',
+      '远程字幕候选列表: ${candidates.length} 个（${videoPath}）',
+    );
+    return candidates;
+  }
 
+  Future<List<RemoteSubtitleCandidate>> _listCandidatesForResolvedPath(
+      String videoPath) async {
     final resolvedPath = _resolveManagedStreamPath(videoPath);
 
     if (DandanplayRemoteService.instance.isDandanplayStreamUrl(resolvedPath)) {
@@ -271,13 +284,16 @@ class RemoteSubtitleService {
 
     final extension =
         candidate.extension.isNotEmpty ? candidate.extension : '.srt';
+    // 缓存键不包含 fileSize：dandanplay 等服务端对同一文件两次列表请求可能
+    // 返回不同/缺失的 size，size 参与哈希会导致同一字幕每次落到不同缓存名，
+    // 配合下载失败就表现为“挂载选中永远无效”。内容变化由下面的 size 比对处理。
     final cacheKey = switch (candidate) {
       WebDavRemoteSubtitleCandidate() =>
         'webdav:${candidate.connection.id}:${candidate.remotePath}',
       SmbRemoteSubtitleCandidate() =>
         'smb:${candidate.connection.id}:${candidate.smbPath}',
       DandanplayRemoteSubtitleCandidate() =>
-        'dandanplay:${candidate.entryId}:${candidate.fileName}:${candidate.fileSize ?? ''}',
+        'dandanplay:${candidate.entryId}:${candidate.fileName}',
       SharedRemoteSubtitleCandidate() =>
         'shared:${candidate.subtitleUri.replace(userInfo: '', fragment: '').toString()}',
     };
@@ -288,12 +304,18 @@ class RemoteSubtitleService {
     if (!forceRefresh && await target.exists()) {
       final size = await target.length();
       if (size > 0) {
-        // 服务端声明了大小且与缓存不一致 -> 远程字幕已变化，弃用旧缓存
+        // 服务端声明了大小且与缓存不一致 -> 远程字幕可能已变化，尝试刷新
         final declared = candidate.fileSize;
         if (declared == null || declared == size) {
+          logPlayerEvent(
+            'Subtitle',
+            '远程字幕命中缓存: ${candidate.name}（${candidate.sourceLabel}）',
+          );
           return target.path;
         }
-        await target.delete();
+        debugPrint(
+          'RemoteSubtitleService: 远程字幕大小变化($size -> $declared)，尝试刷新缓存',
+        );
       }
     }
 
@@ -303,16 +325,43 @@ class RemoteSubtitleService {
     }
 
     try {
+      logPlayerEvent(
+        'Subtitle',
+        '开始下载远程字幕: ${candidate.name}（${candidate.sourceLabel}）',
+      );
       await _downloadToFile(candidate, tmp);
+      // 先下载成功再替换旧缓存；下载失败时旧缓存保持可用（下方回退）。
       if (await target.exists()) {
         await target.delete();
       }
       await tmp.rename(target.path);
+      logPlayerEvent(
+        'Subtitle',
+        '远程字幕下载完成: ${candidate.name} -> ${target.path}',
+      );
       return target.path;
     } catch (e) {
       if (await tmp.exists()) {
         await tmp.delete();
       }
+      // 刷新失败但本地已有可用缓存（移除字幕后的重新挂载场景）：回退缓存，
+      // 不要让一次网络/服务端错误把挂载彻底打断。
+      if (!forceRefresh && await target.exists() && await target.length() > 0) {
+        debugPrint(
+          'RemoteSubtitleService: 刷新远程字幕失败($e)，回退使用本地缓存 ${target.path}',
+        );
+        logPlayerEvent(
+          'Subtitle',
+          '远程字幕下载失败（$e），回退使用本地缓存: ${candidate.name}',
+          level: 'WARN',
+        );
+        return target.path;
+      }
+      logPlayerEvent(
+        'Subtitle',
+        '远程字幕缓存失败: ${candidate.name}（${candidate.sourceLabel}）: $e',
+        level: 'ERROR',
+      );
       rethrow;
     }
   }

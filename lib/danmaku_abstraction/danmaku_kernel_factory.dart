@@ -6,6 +6,7 @@ import 'package:nipaplay/constants/settings_keys.dart';
 import 'package:nipaplay/danmaku_next/next2_platform_support.dart';
 import 'package:nipaplay/plugins/models/plugin_danmaku_renderer.dart';
 import 'package:nipaplay/utils/linux_nvidia_gpu.dart';
+import 'package:nipaplay/utils/player_event_log.dart';
 
 /// 弹幕渲染引擎枚举
 enum DanmakuRenderEngine {
@@ -58,6 +59,10 @@ class DanmakuKernelFactory {
 
     _setEnableNextPlusPlus(enabled);
     _kernelChangeController.add(DanmakuRenderEngine.nipaplayNext);
+    logPlayerEvent(
+      'Danmaku',
+      '用户切换弹幕渲染引擎: NipaPlay Next${enabled ? '++' : ''}',
+    );
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -165,6 +170,7 @@ class DanmakuKernelFactory {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(SettingsKeys.danmakuPluginRenderer, selectionId);
     _rendererChangeController.add(null);
+    logPlayerEvent('Danmaku', '用户切换弹幕渲染引擎: 插件渲染器 $selectionId');
   }
 
   /// 保存弹幕渲染引擎设置
@@ -185,6 +191,10 @@ class DanmakuKernelFactory {
       if (oldEngine != sanitizedEngine || hadPluginRenderer) {
         _kernelChangeController.add(sanitizedEngine);
         _rendererChangeController.add(null);
+        logPlayerEvent(
+          'Danmaku',
+          '用户切换弹幕渲染引擎: ${sanitizedEngine.name}',
+        );
       }
     } catch (e) {
       // ignore

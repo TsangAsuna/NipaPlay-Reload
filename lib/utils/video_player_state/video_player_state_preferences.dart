@@ -2093,6 +2093,8 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     _subtitleFontName = trimmed;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_subtitleFontNameKey, trimmed);
+    // 多选字体在叠层渲染前必须已注册进引擎，否则 fontFamily 静默回退。
+    unawaited(ensureSelectedSubtitleFontsRegistered());
     await applySubtitleStylePreference();
     _notifyListeners();
   }
@@ -2156,6 +2158,10 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
   /// 将字幕字体注册到 Flutter（overlay 的 fontFamily 才能生效，否则 Text 不渲染）
   Future<String?> _registerSubtitleRuntimeFont(String filePath) async {
     if (kIsWeb) return null;
+    if (VideoPlayerState._registeredSubtitleRuntimeFontPaths
+        .contains(filePath)) {
+      return p.basenameWithoutExtension(filePath);
+    }
     try {
       final file = File(filePath);
       if (!await file.exists()) return null;
@@ -2167,10 +2173,63 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
         Future<ByteData>.value(ByteData.sublistView(Uint8List.fromList(bytes))),
       );
       await loader.load();
+      VideoPlayerState._registeredSubtitleRuntimeFontPaths.add(filePath);
       return family;
     } catch (e) {
       debugPrint('[VideoPlayerState] 注册字幕字体失败: $e');
       return null;
+    }
+  }
+
+  /// 确保当前多选的字幕字体已注册进 Flutter 引擎。
+  ///
+  /// 远程下载/历史缓存的字体文件从未走过 import 流程时，overlay 的
+  /// fontFamily 会静默回退到默认字体——用户感知就是“选了字体没生效”。
+  /// 在设置面板打开与字体选择变更时调用。
+  Future<void> ensureSelectedSubtitleFontsRegistered() async {
+    if (kIsWeb) return;
+    final dir = _subtitleFontDir.trim();
+    if (dir.isEmpty) return;
+    final selected = _subtitleFontName
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (selected.isEmpty) return;
+    var missing = 0;
+    for (final family in selected) {
+      final candidates = <String>[
+        '$family.ttf',
+        '$family.otf',
+        '$family.ttc',
+      ];
+      File? match;
+      for (final name in candidates) {
+        final file = File(p.join(dir, name));
+        if (file.existsSync()) {
+          match = file;
+          break;
+        }
+      }
+      if (match == null) {
+        missing++;
+        continue;
+      }
+      if (VideoPlayerState._registeredSubtitleRuntimeFontPaths
+          .contains(match.path)) {
+        continue;
+      }
+      final registered = await _registerSubtitleRuntimeFont(match.path);
+      if (registered == null) {
+        missing++;
+      }
+    }
+    if (missing > 0 && !VideoPlayerState._subtitleFontRegistrationWarned) {
+      VideoPlayerState._subtitleFontRegistrationWarned = true;
+      debugPrint(
+        '[VideoPlayerState] 有 $missing 个已选字幕字体未能注册（文件缺失或解析失败），'
+        '渲染将回退默认字体',
+      );
     }
   }
 

@@ -11,6 +11,7 @@ import 'package:flutter/widgets.dart';
 import './abstract_player.dart';
 import './player_data_models.dart';
 import './player_enums.dart';
+import 'package:nipaplay/utils/player_event_log.dart';
 
 class _ErikaDanmakuConfigPatch {
   _ErikaDanmakuConfigPatch({
@@ -649,13 +650,22 @@ class ErikaPlayerAdapter
           defaultTargetPlatform == TargetPlatform.iOS ||
           _isHarmonyOS);
 
-  static const Duration _playbackWatchdogDelay = Duration(seconds: 4);
+  static const Duration _playbackWatchdogDelay = Duration(seconds: 3);
+  // 原生位置事件静默多久视为停摆。内核停摆时 seek 仍可能产生零星事件
+  // （拖动能出帧），但事件流会停止；因此按“最近一次事件距今”判断，
+  // 而不是与布防时刻的事件计数比较——否则布防后发生的 seek 事件会把
+  // 停摆误判为正常播放。
+  static const Duration _stallEventSilenceThreshold = Duration(
+    milliseconds: 2500,
+  );
   static const int _maxConsecutiveStallRecoveries = 3;
 
   Timer? _playbackWatchdogTimer;
-  // 仅由原生 positionChanged 事件递增，seek/play 的本地时间戳不影响它。
+  // 仅由原生 positionChanged 事件递增/刷新，seek/play 的本地时间戳不影响它。
   int _positionEventCount = 0;
+  DateTime? _lastNativePositionEventAt;
   int _stallRecoveryCount = 0;
+  bool _stallNudgeAttempted = false;
   bool _stallRecoveryInFlight = false;
 
   // 重开媒体后需要恢复的会话级状态（弹幕/外挂字幕/字幕缩放等）。
@@ -1468,42 +1478,70 @@ class ErikaPlayerAdapter
 
   // ---- 回前台播放停滞自愈（MediaLoadAwarePlayer） ----
 
-  /// Play 命令成功返回后布防：若 [_playbackWatchdogDelay] 内没有任何新的原生
-  /// 位置事件且仍处于 playing 状态，判定内核停摆并重开媒体自愈。
+  /// Play 命令成功返回后布防：若事件静默超过 [_stallEventSilenceThreshold]
+  /// 且仍处于 playing 状态，先 pause→play 快速唤醒，无效再重开媒体自愈。
   ///
   /// 只在“本媒体曾收到过原生位置事件”的 Play 上设防，避免误伤首次起播时的
   /// 网络缓冲（首次起播没有事件是正常的）；回前台恢复、后台后手动点播等都
   /// 满足该前提。桌面端（窗口 overlay）不涉及本问题，保持关闭。
-  void _armPlaybackWatchdog() {
+  void _armPlaybackWatchdog({bool resetNudgeAttempt = true}) {
     if (!_isMobileKernelPlatform || _disposed) {
       return;
     }
     _playbackWatchdogTimer?.cancel();
+    if (resetNudgeAttempt) {
+      _stallNudgeAttempted = false;
+    }
     if (_positionEventCount == 0) {
       return;
     }
-    final armedEventCount = _positionEventCount;
     _playbackWatchdogTimer = Timer(_playbackWatchdogDelay, () {
-      _handlePlaybackWatchdogFired(armedEventCount);
+      _handlePlaybackWatchdogFired();
     });
   }
 
-  void _handlePlaybackWatchdogFired(int armedEventCount) {
+  void _handlePlaybackWatchdogFired() {
     if (_disposed || _stallRecoveryInFlight) {
       return;
     }
     if (_state != PlayerPlaybackState.playing) {
       return;
     }
-    if (_positionEventCount != armedEventCount) {
+    final lastEventAt = _lastNativePositionEventAt;
+    final silence = lastEventAt == null
+        ? null
+        : DateTime.now().difference(lastEventAt);
+    if (silence != null && silence < _stallEventSilenceThreshold) {
       // 内核仍在产生位置事件 = 播放正常，同时清掉连续自愈计数。
       _stallRecoveryCount = 0;
+      _stallNudgeAttempted = false;
       return;
     }
     final fenceUntil = _seekFenceUntil;
     if (fenceUntil != null && DateTime.now().isBefore(fenceUntil)) {
       // 用户正在拖动/强制刷新帧，等 fence 过期后再复查。
       _armPlaybackWatchdog();
+      return;
+    }
+    if (!_stallNudgeAttempted) {
+      // 第一优先：pause→play 快速唤醒（回前台实测有效，比重开媒体快得多）。
+      _stallNudgeAttempted = true;
+      debugPrint(
+        '[Erika] Play 后位置事件静默 ${silence?.inMilliseconds ?? -1}ms，'
+        '执行 pause→play 快速唤醒',
+      );
+      logPlayerEvent(
+        'Erika',
+        '检测到回前台播放停滞（${_playbackWatchdogDelay.inSeconds}s 无位置事件），'
+        '自动执行 pause→play 唤醒',
+        level: 'WARN',
+      );
+      unawaited(
+        _nudgeStalledPlayback().whenComplete(() {
+          // 唤醒成功则下一轮看门狗判定为健康；仍无效则进入重开流程。
+          _armPlaybackWatchdog(resetNudgeAttempt: false);
+        }),
+      );
       return;
     }
     if (_stallRecoveryCount >= _maxConsecutiveStallRecoveries) {
@@ -1514,6 +1552,21 @@ class ErikaPlayerAdapter
     }
     _stallRecoveryCount += 1;
     unawaited(_recoverStalledPlayback());
+  }
+
+  /// 轻量唤醒：原生 pause→play。回前台后内核时钟停摆时，用户手动“暂停再
+  /// 播放”能恢复，这里自动做同样的事，免去用户手动操作。
+  Future<void> _nudgeStalledPlayback() async {
+    if (_disposed) {
+      return;
+    }
+    try {
+      await _player.pause();
+      await _player.play();
+      debugPrint('[Erika] pause→play 快速唤醒已下发');
+    } catch (error) {
+      debugPrint('[Erika] pause→play 快速唤醒失败: $error');
+    }
   }
 
   Future<void> _recoverStalledPlayback() async {
@@ -1527,14 +1580,21 @@ class ErikaPlayerAdapter
         '[Erika] Play 后 ${_playbackWatchdogDelay.inSeconds}s 无原生位置事件，'
         '判定播放停摆，重开媒体自愈（第 $_stallRecoveryCount 次）',
       );
+      logPlayerEvent(
+        'Erika',
+        '快速唤醒无效，重开媒体自愈（第 $_stallRecoveryCount 次）',
+        level: 'WARN',
+      );
       final recovered = await retryCurrentMediaLoad();
       if (!recovered || _disposed || !wasPlaying) {
         return;
       }
       await playDirectly();
       debugPrint('[Erika] 停滞自愈完成，播放已重新拉起');
+      logPlayerEvent('Erika', '停滞自愈完成，播放已自动恢复');
     } catch (error) {
       debugPrint('[Erika] 停滞自愈失败: $error');
+      logPlayerEvent('Erika', '停滞自愈失败: $error', level: 'ERROR');
     } finally {
       _stallRecoveryInFlight = false;
     }
@@ -1878,6 +1938,7 @@ class ErikaPlayerAdapter
         event.position >= Duration.zero) {
       // 活性信号：任何原生位置事件都证明播放管线仍在推进（含 seek 回报）。
       _positionEventCount++;
+      _lastNativePositionEventAt = DateTime.now();
       final eventPositionMs = event.position.inMilliseconds;
       final now = DateTime.now();
       final seekTarget = _pendingSeekTargetMs;

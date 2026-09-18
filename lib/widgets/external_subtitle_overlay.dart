@@ -142,6 +142,55 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                             // 手势只包文本层：命中区限定在字幕周围，避免全屏拦截暂停等触摸。
                             // 用 Pan（单指）拖动：与音量/亮度 VerticalDrag 在竞技场竞争，
                             // 拖动激活后置 subtitleDragActive 屏蔽音量/亮度/进度手势。
+                            // 命中区限定在字幕文本层（nPlayer subtitleContainsPoint 语义）：
+                            // 按到文本才开始拖动；框内 padding 空域不触发拖动，避免误拖。
+                            // 未锁定可拖（水平 marginX / 垂直 position，1:1 舞台映射可入黑边）；
+                            // 点锁定键 -> 锁定并消除编辑框；锁定后点字幕 -> 解锁出框。
+                            // 拖动激活期间置 subtitleDragActive 屏蔽音量/亮度/进度手势。
+                            Widget textHitArea = GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onPanStart: _locked
+                                  ? null
+                                  : (details) {
+                                      videoState.setSubtitleDragActive(true);
+                                      if (!_boxVisible) {
+                                        setState(() => _boxVisible = true);
+                                      }
+                                    },
+                              onPanUpdate: _locked
+                                  ? null
+                                  : (details) {
+                                      final v = videoState;
+                                      v.setSubtitleMarginX(
+                                        v.subtitleMarginX + details.delta.dx,
+                                      );
+                                      // 垂直：按舞台高度 1:1 映射到 0~100（可拖到视频外黑边区）
+                                      final stageH = constraints.maxHeight.isFinite
+                                          ? constraints.maxHeight
+                                          : MediaQuery.of(context).size.height;
+                                      v.setSubtitlePosition(
+                                        (v.subtitlePosition +
+                                                details.delta.dy / stageH * 100)
+                                            .clamp(
+                                              VideoPlayerState.minSubtitlePosition,
+                                              VideoPlayerState.maxSubtitlePosition,
+                                            )
+                                            .toDouble(),
+                                      );
+                                    },
+                              onPanEnd: _locked
+                                  ? null
+                                  : (_) {
+                                      videoState.setSubtitleDragActive(false);
+                                    },
+                              onPanCancel: _locked
+                                  ? null
+                                  : () {
+                                      videoState.setSubtitleDragActive(false);
+                                    },
+                              child: textBox,
+                            );
+
                             Widget positionedContent = draggable
                                 ? GestureDetector(
                                     behavior: HitTestBehavior.opaque,
@@ -154,48 +203,6 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                         });
                                       }
                                     },
-                                    onPanStart: _locked
-                                        ? null
-                                        : (details) {
-                                            videoState.setSubtitleDragActive(true);
-                                            if (!_boxVisible) {
-                                              setState(() => _boxVisible = true);
-                                            }
-                                          },
-                                    onPanUpdate: _locked
-                                        ? null
-                                        : (details) {
-                                            final v = videoState;
-                                            v.setSubtitleMarginX(
-                                              v.subtitleMarginX + details.delta.dx,
-                                            );
-                                            // 垂直：按舞台高度 1:1 映射到 0~100（可拖到视频外黑边区）
-                                            final stageH =
-                                                constraints.maxHeight.isFinite
-                                                    ? constraints.maxHeight
-                                                    : MediaQuery.of(context)
-                                                        .size
-                                                        .height;
-                                            v.setSubtitlePosition(
-                                              (v.subtitlePosition +
-                                                      details.delta.dy / stageH * 100)
-                                                  .clamp(
-                                                    VideoPlayerState.minSubtitlePosition,
-                                                    VideoPlayerState.maxSubtitlePosition,
-                                                  )
-                                                  .toDouble(),
-                                            );
-                                          },
-                                    onPanEnd: _locked
-                                        ? null
-                                        : (_) {
-                                            videoState.setSubtitleDragActive(false);
-                                          },
-                                    onPanCancel: _locked
-                                        ? null
-                                        : () {
-                                            videoState.setSubtitleDragActive(false);
-                                          },
                                     child: _boxVisible
                                         ? Transform.translate(
                                             offset: const Offset(-24, -24),
@@ -204,11 +211,11 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                               child: Stack(
                                                 clipBehavior: Clip.none,
                                                 children: [
-                                                  // 文本 + 虚线边框层（只圈住字幕文本区域）
+                                                  // 文本 + 虚线边框层（只圈住字幕文本区域；拖动只从文本触发）
                                                   Stack(
                                                     clipBehavior: Clip.none,
                                                     children: [
-                                                      textBox,
+                                                      textHitArea,
                                                       Positioned.fill(
                                                         child: IgnorePointer(
                                                           child: Container(
@@ -281,9 +288,10 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                               ),
                                             ),
                                           )
-                                        : textBox,
+                                        : textHitArea,
                                   )
                                 : textBox;
+
 
                             Widget content = Opacity(
                               opacity:

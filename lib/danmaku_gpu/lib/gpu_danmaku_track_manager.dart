@@ -20,7 +20,7 @@ class GPUDanmakuTrackManager {
   /// 轨道类型（顶部或底部）
   final DanmakuTrackType trackType;
   
-  /// 🔥 新增：记录上次的屏幕尺寸，用于检测窗口大小变化
+  ///  新增：记录上次的屏幕尺寸，用于检测窗口大小变化
   Size _lastScreenSize = Size.zero;
   
   GPUDanmakuTrackManager({
@@ -33,7 +33,7 @@ class GPUDanmakuTrackManager {
   /// 参数:
   /// - size: 屏幕尺寸
   void updateLayout(Size size) {
-    // 🔥 新增：检测窗口大小变化
+    //  新增：检测窗口大小变化
     final sizeChanged = _lastScreenSize != size;
     _lastScreenSize = size;
     
@@ -43,7 +43,7 @@ class GPUDanmakuTrackManager {
       _maxTracks = newMaxTracks;
       _availableTracks = List<bool>.filled(_maxTracks, true);
       
-      // 🔥 修复：窗口大小变化时，只调整超出新轨道范围的弹幕，不清空所有轨道
+      //  修复：窗口大小变化时，只调整超出新轨道范围的弹幕，不清空所有轨道
       if (sizeChanged) {
         _adjustTracksForSizeChange(oldMaxTracks);
       } else {
@@ -168,13 +168,13 @@ class GPUDanmakuTrackManager {
       case DanmakuTrackType.top:
         // 顶部弹幕从屏幕顶部开始
         final y = trackId * (config.fontSize + config.danmakuBottomMargin);
-        // 🔥 新增：确保弹幕不会超出屏幕顶部边界
+        //  新增：确保弹幕不会超出屏幕顶部边界
         return y.clamp(0.0, screenHeight - config.fontSize);
       case DanmakuTrackType.bottom:
         // 底部弹幕从屏幕底部开始，向上排列
         final totalHeight = _maxTracks * (config.fontSize + config.danmakuBottomMargin);
         final y = screenHeight - totalHeight + trackId * (config.fontSize + config.danmakuBottomMargin);
-        // 🔥 新增：确保弹幕不会超出屏幕底部边界
+        //  新增：确保弹幕不会超出屏幕底部边界
         return y.clamp(0.0, screenHeight - config.fontSize);
     }
   }

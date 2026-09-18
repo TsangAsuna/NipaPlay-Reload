@@ -58,18 +58,18 @@ class SpriteSlot {
 ///
 /// 核心思路：
 /// - 所有弹幕的预光栅化 ui.Image 被打包到一张 4096×4096 共享纹理中
-/// - paint() 用单次 drawRawAtlas 替代 N 次 drawImageRect → GPU draw call 从 N 降至 1
+/// - paint() 用单次 drawRawAtlas 替代 N 次 drawImageRect  GPU draw call 从 N 降至 1
 /// - 图集在缓存未命中时增量重建，稳态帧无需任何图集操作
 ///
 /// 生命周期：
-/// 1. 新弹幕出现 → 光栅化 Paragraph → 得到 ui.Image → 分配槽位 → 标记 atlas dirty
-/// 2. atlas dirty → 重建图集纹理（PictureRecorder + drawImageRect × N + toImageSync）
-/// 3. paint() → 直接使用图集纹理 + drawRawAtlas
+/// 1. 新弹幕出现  光栅化 Paragraph  得到 ui.Image  分配槽位  标记 atlas dirty
+/// 2. atlas dirty  重建图集纹理（PictureRecorder + drawImageRect × N + toImageSync）
+/// 3. paint()  直接使用图集纹理 + drawRawAtlas
 class DanmakuSpriteAtlas {
   /// 图集纹理 — 所有弹幕共享
   ui.Image? _atlasTexture;
 
-  /// 槽位映射 — int 哈希键 → 槽位
+  /// 槽位映射 — int 哈希键  槽位
   final HashMap<int, SpriteSlot> _slots = HashMap<int, SpriteSlot>();
 
   /// 槽位插入顺序 — 用于 FIFO 淘汰
@@ -101,13 +101,13 @@ class DanmakuSpriteAtlas {
 
   /// [P1] 最小重建间隔（毫秒）— 限制 atlas 重建频率，防止帧跳帧
   /// 压测数据: 12秒80次重建(每次1.1-2ms)导致帧跳帧2-3.3× + HARD_SNAP drift
-  /// 节流至100ms后预期: 80次/12s → ~12次/12s，消除帧跳帧+drift
+  /// 节流至100ms后预期: 80次/12s  ~12次/12s，消除帧跳帧+drift
   /// 2026-06-22: 实测 flutter.log ATLAS_REBUILD=135/2s（67.5/秒）仍过频，
   /// 节流 100ms 不足以覆盖弹幕密集场景，放宽到 200ms（≤5次/秒）。
   /// 未提交 slot 走 fallback 渲染，视觉上无差异（fallback 直接 drawImageRect）。
   static const int _rebuildThrottleMs = 200;
 
-  /// 设备像素比 — 用于逻辑→像素坐标转换
+  /// 设备像素比 — 用于逻辑像素坐标转换
   final double devicePixelRatio;
 
   /// 槽位间距（像素）— 防止纹理采样溢出（Impeller 需要更大间距）
@@ -257,7 +257,7 @@ class DanmakuSpriteAtlas {
       debugPrint('[ATLAS-THROTTLE-DIAG] ensureAtlas REBUILD: '
           '_lastRebuildMs=$_lastRebuildMs nowMs=$nowMs '
           'dirty=$_dirty slots=${_slots.length} '
-          '${_lastRebuildMs == 0 ? "← _lastRebuildMs=0 (first/disposed)" : "← sinceLast=${nowMs - _lastRebuildMs}ms >= $_rebuildThrottleMs"}');
+          '${_lastRebuildMs == 0 ? " _lastRebuildMs=0 (first/disposed)" : " sinceLast=${nowMs - _lastRebuildMs}ms >= $_rebuildThrottleMs"}');
     }
     _rebuildAtlas();
     return _atlasTexture;
@@ -391,7 +391,7 @@ class DanmakuSpriteAtlas {
 
     // 显式清除整个画布为透明 — 防止 Impeller toImageSync
     // 未初始化 GPU 纹理内存导致白色/脏数据残留
-    // ⚠️ [ATLAS-DIAG-BUG1] 改用 BlendMode.clear 替代 BlendMode.src + transparent:
+    //  [ATLAS-DIAG-BUG1] 改用 BlendMode.clear 替代 BlendMode.src + transparent:
     // Impeller 可能将 "写入 alpha=0 像素" 优化为 no-op，BlendMode.clear 语义为
     // "丢弃目标，写入全透明"，对应 GPU 的 glClear/vkClearAttachment，不会被优化掉
     canvas.drawRect(

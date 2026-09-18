@@ -14,7 +14,7 @@ typedef _ResolveOutcome = ({int? malId, bool definitive});
 ///
 /// ## 为什么不能靠 Bangumi infobox
 ///
-/// 最初的设想是「Bangumi 条目 → infobox 里的 MAL 外链」。实测（2026-09）
+/// 最初的设想是「Bangumi 条目  infobox 里的 MAL 外链」。实测（2026-09）
 /// 取了碧蓝之海 S1/S3、鲁路修 R2、EVA 等一批**动画**条目，infobox 里全是
 /// 制作人员表（导演/脚本/作画监督…），**没有任何 MAL / MyAnimeList 字段**。
 /// 那个字段只在漫画、书籍类条目的少数条目上偶现。所以这条路对动画不成立。
@@ -25,9 +25,9 @@ typedef _ResolveOutcome = ({int? malId, bool definitive});
 /// 直接拿 `idMal` 即得 MAL ID。实测：
 ///
 /// ```
-/// search "Grand Blue"          → AniList 100922, idMal 37105   ✅
-/// search "Grand Blue Season 3" → AniList 199111, idMal 62542   ✅
-/// search "碧蓝之海"             → 404                            ❌
+/// search "Grand Blue"           AniList 100922, idMal 37105   
+/// search "Grand Blue Season 3"  AniList 199111, idMal 62542   
+/// search "碧蓝之海"              404                            
 /// ```
 ///
 /// **注意最后一条**：AniList 的搜索不认中文标题，只匹配罗马音 / 英文 / 日文原名。
@@ -161,7 +161,7 @@ class SkipIdResolver {
       for (final variant in variants) {
         final outcome = await _searchAniList(variant, premiereYear);
         if (outcome.malId != null) {
-          debugPrint('[跳过片头] "$variant" → MAL ${outcome.malId}');
+          debugPrint('[跳过片头] "$variant"  MAL ${outcome.malId}');
           return outcome;
         }
         if (!outcome.definitive) definitive = false;
@@ -182,7 +182,7 @@ class SkipIdResolver {
 
     final chineseSeason = _chineseSeasonNumber(title);
     if (chineseSeason != null) {
-      // 「碧蓝之海 第二季」→「碧蓝之海 Season 2」
+      // 「碧蓝之海 第二季」「碧蓝之海 Season 2」
       final base =
           title.replaceAll(RegExp(r'\s*第[一二三四五六七八九十\d]+[季期部]\s*'), ' ').trim();
       if (base.isNotEmpty) {

@@ -907,7 +907,7 @@ class _DanmakuContainerState extends State<DanmakuContainer> {
                       widget.currentTime - (time - widget.timeOffset);
 
                   if (elapsed >= -earlyStartTime && elapsed <= duration) {
-                    // 🔥 修复：弹幕从更远的屏幕外开始，确保时间轴时间点时刚好在屏幕边缘
+                    //  修复：弹幕从更远的屏幕外开始，确保时间轴时间点时刚好在屏幕边缘
                     final extraDistance =
                         (newSize.width + textWidth) / 10; // 额外距离
                     final startX = newSize.width + extraDistance; // 起始位置

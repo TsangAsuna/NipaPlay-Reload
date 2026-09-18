@@ -251,7 +251,7 @@ class _NipaplayLargeScreenPlayerMenuPanelState
                   ),
                 ),
                 Text(
-                  '← 返回分类  ·  菜单键关闭',
+                  ' 返回分类  ·  菜单键关闭',
                   style: TextStyle(
                     color: textColor.withValues(alpha: 0.48),
                     fontSize: 11,

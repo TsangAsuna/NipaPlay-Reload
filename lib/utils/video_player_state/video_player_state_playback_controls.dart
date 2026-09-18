@@ -477,10 +477,10 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
       _bufferedPositionMs = 0;
       _playbackTimeMs.value = 0;
       _lastRawPlayerMs = -1; // 重置平滑时钟，下次 Ticker 重新对齐
-      // ✅ P2-LOOP-RESTART 修复：补齐 seekTo() 中正确设置的三个锚点字段
+      //  P2-LOOP-RESTART 修复：补齐 seekTo() 中正确设置的三个锚点字段
       // 根因：缺少 _smoothAnchorMs/_smoothAnchorElapsedUs/_seekTargetMs 设置
-      // → Ticker callback 下一帧从旧 player.position 重新锚定
-      // → playbackTimeMs 被覆盖回末尾 → 弹幕/视频跳回 → 鬼畜
+      //  Ticker callback 下一帧从旧 player.position 重新锚定
+      //  playbackTimeMs 被覆盖回末尾  弹幕/视频跳回  鬼畜
       // 参照：seekTo() (line 670-674) 正确设置了这三个字段
       _smoothAnchorMs = 0.0;
       _smoothAnchorElapsedUs = _lastElapsedUs;
@@ -669,12 +669,12 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
         _startUiUpdateTimer();
       }
       if (!(_uiUpdateTicker?.isActive ?? false)) {
-        // ✅ P2 修复：恢复播放时重设锚点，避免 Ticker elapsed 重置导致 elapsedDeltaUs 负值
+        //  P2 修复：恢复播放时重设锚点，避免 Ticker elapsed 重置导致 elapsedDeltaUs 负值
         // Flutter Ticker stop()+start() 后 elapsed 从 0 重新开始，
         // 但 _smoothAnchorElapsedUs 保留暂停前的值（如 5,000,000μs），
-        // 导致恢复首帧 elapsedDeltaUs = 16,667 - 5,000,000 = 负数 → smoothMs 大幅落后
+        // 导致恢复首帧 elapsedDeltaUs = 16,667 - 5,000,000 = 负数  smoothMs 大幅落后
         //
-        // ✅ P3 修复：使用暂停时保存的 playbackTimeMs 作为锚点，
+        //  P3 修复：使用暂停时保存的 playbackTimeMs 作为锚点，
         // 而不是让首帧走"重锚到 player.position"路径。
         // mpv 恢复后 player.position 可能回退（比暂停前小几十ms），
         // 直接锚定到 playerMs 会导致弹幕跳变到错误时间点。
@@ -685,7 +685,7 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
           // ════════════════════════════════════════════════════════════════════
           // 正常暂停恢复：_pausedPlaybackTimeMs 是本集暂停位置，用作锚点无缝继续
           // 切集污染：_pausedPlaybackTimeMs 是旧集末尾（_clearPreviousVideoState 漏清理时），
-          //   误用会导致 playbackTimeMs 卡在旧集末尾 → 弹幕查不到 → 后续突跌回弹
+          //   误用会导致 playbackTimeMs 卡在旧集末尾  弹幕查不到  后续突跌回弹
           //   判定：_pausedPlaybackTimeMs > 新集 duration+1s（旧集末尾超过新集时长）
           //         或 _pausedPlaybackTimeMs>1s 且 _position<100ms（旧集末尾值 + 新集开头位置）
           final isSuspectEpisodeSwitch = _pausedPlaybackTimeMs! >
@@ -697,7 +697,7 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
                 'pausedPlaybackTimeMs=${_pausedPlaybackTimeMs!.toStringAsFixed(1)}ms '
                 'newDuration=${_duration.inMilliseconds}ms '
                 'newPosition=${_position.inMilliseconds}ms '
-                '← SUSPECT_EPISODE_SWITCH=$isSuspectEpisodeSwitch '
+                ' SUSPECT_EPISODE_SWITCH=$isSuspectEpisodeSwitch '
                 '${isSuspectEpisodeSwitch ? "丢弃旧集末尾污染值，走正常首帧锚定" : "正常暂停恢复，用作锚点"}');
           }
           if (isSuspectEpisodeSwitch) {
@@ -745,10 +745,10 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
     //  切集时清理平滑时钟锚点 + _pausedPlaybackTimeMs（2026-06-21）
     // ════════════════════════════════════════════════════════════════════
     // 原缺陷：_clearPreviousVideoState 不重置平滑时钟字段，旧集末尾位置残留。
-    // 切集时序：playNextEpisode→togglePlayPause→pause 保存 _pausedPlaybackTimeMs=旧集末尾
-    // → initializePlayer→_clearPreviousVideoState（此处）不清理
-    // → 新集 play() 暂停恢复路径误把 _pausedPlaybackTimeMs(旧集末尾) 当新集锚点
-    // → playbackTimeMs 卡在旧集末尾（clamp 到新集 duration）→ 弹幕查不到 → 后续突跌回弹
+    // 切集时序：playNextEpisodetogglePlayPausepause 保存 _pausedPlaybackTimeMs=旧集末尾
+    //  initializePlayer_clearPreviousVideoState（此处）不清理
+    //  新集 play() 暂停恢复路径误把 _pausedPlaybackTimeMs(旧集末尾) 当新集锚点
+    //  playbackTimeMs 卡在旧集末尾（clamp 到新集 duration） 弹幕查不到  后续突跌回弹
     //
     // 切集首个清理点同步重置所有平滑时钟字段 + _pausedPlaybackTimeMs
     // 让新集 play() 走正常首帧锚定（锚定到 player.position=0），而非误用旧集末尾。
@@ -765,7 +765,7 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
       debugPrint('[EP-SWITCH-DIAG] _clearPreviousVideoState ANCHOR RESET: '
           'ptm=0.0 smoothAnchorMs=0.0 smoothAnchorElapsedUs=$_smoothAnchorElapsedUs '
           'seekTargetMs=null lastRawPlayerMs=-1 pausedPlaybackTimeMs=null '
-          '← 切集锚点已清理，新集将走正常首帧锚定');
+          ' 切集锚点已清理，新集将走正常首帧锚定');
     }
     _subtitleManager.clearExternalSubtitle(notifyListenersToo: false);
     _currentVideoPath = null;
@@ -851,7 +851,7 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
     _bufferedPositionMs = 0;
     _playbackTimeMs.value = 0;
     _lastRawPlayerMs = -1; // 重置平滑时钟
-    // ✅ P2-LOOP-RESTART 一致性修复：补齐锚点字段（与 seekTo() 保持一致）
+    //  P2-LOOP-RESTART 一致性修复：补齐锚点字段（与 seekTo() 保持一致）
     _smoothAnchorMs = 0.0;
     _smoothAnchorElapsedUs = 0;
     _seekTargetMs =
@@ -1467,7 +1467,7 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
   void increaseVolume({double? step}) {
     try {
       final double baseStep = step ?? _volumeStep;
-      // 使用整数百分比运算避免浮点精度问题（100%→95%→90% 而非 100%→94.9%→89.9%）
+      // 使用整数百分比运算避免浮点精度问题（100%95%90% 而非 100%94.9%89.9%）
       final int currentPercent = (_currentVolume * 100).round();
       final int stepPercent = (baseStep * 100).round();
       final int newPercent = (currentPercent + stepPercent).clamp(0, 100);
@@ -1500,7 +1500,7 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
   void decreaseVolume({double? step}) {
     try {
       final double baseStep = step ?? _volumeStep;
-      // 使用整数百分比运算避免浮点精度问题（100%→95%→90% 而非 100%→94.9%→89.9%）
+      // 使用整数百分比运算避免浮点精度问题（100%95%90% 而非 100%94.9%89.9%）
       final int currentPercent = (_currentVolume * 100).round();
       final int stepPercent = (baseStep * 100).round();
       final int newPercent = (currentPercent - stepPercent).clamp(0, 100);

@@ -58,7 +58,7 @@ class Next2EmojiPipeline {
     // Quick emoji presence check without iterating unless likely.
     for (final cluster in text.characters) {
       if (isEmojiCluster(cluster)) {
-        return null; // has emoji → not cacheable here
+        return null; // has emoji  not cacheable here
       }
     }
     final key = '${fontSize.round().clamp(8, 256)}\u0000$text';
@@ -142,8 +142,8 @@ class Next2EmojiPipeline {
         // Signed scroll velocity in TEXTURE px/s (RL<0, LR>0, static=0).
         // Lets the native renderer interpolate `x_render = x + scroll_speed*dt`
         // between Dart submissions, so 30fps submits yield smooth 60/120fps
-        // motion. scaleX maps layout px/s → texture px/s, matching how `x`
-        // is scaled above. Non-DFM sources leave typeCode=0 → 0 (no interp).
+        // motion. scaleX maps layout px/s  texture px/s, matching how `x`
+        // is scaled above. Non-DFM sources leave typeCode=0  0 (no interp).
         'scroll_speed': _signedScrollSpeed(item, scaleX, playbackRate),
         if (tokens.isNotEmpty) 'tokens': tokens,
       });
@@ -194,7 +194,7 @@ class Next2EmojiPipeline {
 
   /// Signed scroll velocity in texture px/s for native interpolation.
   /// typeCode 6 = ScrollLR (moves right, +), 1 = ScrollRL (moves left, -).
-  /// Static items or unknown typeCode → 0 (no interpolation, safe fallback).
+  /// Static items or unknown typeCode  0 (no interpolation, safe fallback).
   ///
   /// `playbackRate` folds the video playback speed into the velocity so the
   /// native renderer (which advances interpolation by pure wall-clock dt)

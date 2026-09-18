@@ -9,7 +9,7 @@
 //  - playbackRate 变化检测 + displayX 强制同步
 //
 //  渲染管线（替代 DanmakuAtlasPainter 的 sprite atlas + drawImageRect）：
-//  layout → 遍历弹幕 → 遍历字形 → drawGlyph(drawRect + Paint.shader)
+//  layout  遍历弹幕  遍历字形  drawGlyph(drawRect + Paint.shader)
 //  = N 次 GPU draw call（SkSL 兼容，vs 旧版 drawVertices 不兼容 SkSL）
 // ════════════════════════════════════════════════════════════════════
 
@@ -46,7 +46,7 @@ double _diagMaxDrift = 0.0;
 /// P5 MSDF drawRect + Paint.shader 逐字形弹幕画笔
 ///
 /// 渲染管线：
-///   layout → 遍历弹幕 → 遍历字形 → drawGlyph(drawRect + Paint.shader)
+///   layout  遍历弹幕  遍历字形  drawGlyph(drawRect + Paint.shader)
 ///   = N 次 GPU draw call（SkSL 兼容，vs 旧版 drawVertices 不兼容 SkSL）
 class MsdfDanmakuPainter extends CustomPainter {
   MsdfDanmakuPainter({
@@ -143,7 +143,7 @@ class MsdfDanmakuPainter extends CustomPainter {
     // ── playbackRate 变化检测 ──
     if (playbackRate != _lastDiagPlaybackRate) {
       if (!kReleaseMode) {
-        debugPrint('[MSDF-DIAG] RATE CHANGE: $_lastDiagPlaybackRate → $playbackRate');
+        debugPrint('[MSDF-DIAG] RATE CHANGE: $_lastDiagPlaybackRate  $playbackRate');
       }
       _lastDiagPlaybackRate = playbackRate;
       for (final item in items) {
@@ -210,7 +210,7 @@ class MsdfDanmakuPainter extends CustomPainter {
         }
       }
 
-      // ── Emoji 弹幕绕过 MSDF → 直接 drawParagraph ──
+      // ── Emoji 弹幕绕过 MSDF  直接 drawParagraph ──
       // MSDF 不支持 CBDT/COLRv1 彩色 Emoji
       {
         final text = content.text;
@@ -231,7 +231,7 @@ class MsdfDanmakuPainter extends CustomPainter {
       final bool isWhiteOutline = MsdfTextRenderer.isWhiteOutline(content.color);
       final int fillColorARGB = content.color.toARGB32();
 
-      // ── 遍历字形 → addGlyph ──
+      // ── 遍历字形  addGlyph ──
       double cursorX = drawX;
       final text = content.text;
 

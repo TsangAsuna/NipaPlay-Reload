@@ -791,7 +791,7 @@ class SubtitleParser {
             }
             if (nativeResult != null) {
               final result = _fromNativeResult(nativeResult);
-              // 防御性检查: C++ 返回 0 条目但文件非空 → 可能编码转换失败
+              // 防御性检查: C++ 返回 0 条目但文件非空  可能编码转换失败
               if (result.entries.isNotEmpty ||
                   result.format != SubtitleFormat.unknown) {
                 _log('[SubtitleParser] C++ 路径成功: '

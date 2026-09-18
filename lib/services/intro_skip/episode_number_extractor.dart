@@ -98,7 +98,7 @@ class EpisodeNumberExtractor {
     return (season: match.group(1)!, episode: match.group(2)!);
   }
 
-  /// 提取 `SxxExx` 里的季数（`S01E12` → 1）；未命中或非法值返回 null。
+  /// 提取 `SxxExx` 里的季数（`S01E12`  1）；未命中或非法值返回 null。
   static int? extractSeason(String? text) {
     final parts = seasonEpisode(text);
     if (parts == null) return null;

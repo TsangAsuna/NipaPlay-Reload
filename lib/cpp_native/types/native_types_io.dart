@@ -16,7 +16,7 @@ enum NpResultCode {
   errNotFound,
 }
 
-/// NpString — C → Dart 字符串结构体
+/// NpString — C  Dart 字符串结构体
 /// 对应 C++ 侧的 NpString
 final class NpString extends Struct {
   external Pointer<Utf8> data;

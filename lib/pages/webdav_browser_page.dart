@@ -410,7 +410,7 @@ class _WebDAVBrowserPageState extends State<WebDAVBrowserPage> {
   int? _extractEpisodeNumber(String fileName) =>
       EpisodeNumberExtractor.extract(fileName);
 
-  /// 从文件名中提取 Season 数字 (S01 → 1, S2 → 2)
+  /// 从文件名中提取 Season 数字 (S01  1, S2  2)
   int? _extractSeasonNumber(String fileName) =>
       EpisodeNumberExtractor.extractSeason(fileName);
 

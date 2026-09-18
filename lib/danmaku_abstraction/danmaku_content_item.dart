@@ -16,10 +16,10 @@ class DanmakuContentItem {
   /// 弹幕类型
   final DanmakuItemType type;
   
-  /// 🔥 新增：时间偏移（毫秒），用于时间轴跳转后的运动中途弹幕
+  ///  新增：时间偏移（毫秒），用于时间轴跳转后的运动中途弹幕
   final int timeOffset;
   
-  /// 🔥 新增：轨道编号，用于状态恢复时强制使用相同轨道
+  ///  新增：轨道编号，用于状态恢复时强制使用相同轨道
   final int? trackIndex;
   
   /// 字体大小倍率（用于合并弹幕）
@@ -39,7 +39,7 @@ class DanmakuContentItem {
     this.color = Colors.white,
     this.type = DanmakuItemType.scroll,
     this.timeOffset = 0,
-    this.trackIndex, // 🔥 新增：轨道编号
+    this.trackIndex, //  新增：轨道编号
     this.fontSizeMultiplier = 1.0,
     this.countText,
     this.scrollOriginalX,

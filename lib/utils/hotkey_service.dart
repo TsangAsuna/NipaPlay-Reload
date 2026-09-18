@@ -69,7 +69,7 @@ class HotkeyService extends ChangeNotifier {
 
   static bool get hasActiveOverlay => _overlayCount > 0;
 
-  /// overlay 打开时调用：0→1 时注销热键
+  /// overlay 打开时调用：01 时注销热键
   static void overlayPush() {
     _overlayCount++;
     if (_overlayCount == 1) {
@@ -77,7 +77,7 @@ class HotkeyService extends ChangeNotifier {
     }
   }
 
-  /// overlay 关闭时调用：1→0 时恢复热键
+  /// overlay 关闭时调用：10 时恢复热键
   static void overlayPop() {
     if (_overlayCount > 0) _overlayCount--;
     if (_overlayCount == 0) {
@@ -167,16 +167,16 @@ class HotkeyService extends ChangeNotifier {
     currentShortcutsConfig.addAll({
       'play_pause': '空格',
       'fullscreen': 'Enter',
-      'rewind': '←',
-      'forward': '→',
+      'rewind': '',
+      'forward': '',
       'toggle_danmaku': 'D',
-      'volume_up': '↑',
-      'volume_down': '↓',
+      'volume_up': '',
+      'volume_down': '',
       'speed_up': ']',
       'speed_down': '[',
       'speed_reset': '退格',
-      'previous_episode': 'Shift+←',
-      'next_episode': 'Shift+→',
+      'previous_episode': 'Shift+',
+      'next_episode': 'Shift+',
       'send_danmaku': 'C', // 添加发送弹幕快捷键
       'skip': 'S', // 添加跳过快捷键
       'step_forward': 'E', // 逐帧前进
@@ -467,13 +467,13 @@ class HotkeyService extends ChangeNotifier {
         return PhysicalKeyboardKey.space;
       case 'Enter':
         return PhysicalKeyboardKey.enter;
-      case '←':
+      case '':
         return PhysicalKeyboardKey.arrowLeft;
-      case '→':
+      case '':
         return PhysicalKeyboardKey.arrowRight;
-      case '↑':
+      case '':
         return PhysicalKeyboardKey.arrowUp;
-      case '↓':
+      case '':
         return PhysicalKeyboardKey.arrowDown;
       case 'Esc':
         return PhysicalKeyboardKey.escape;
@@ -971,7 +971,7 @@ class HotkeyService extends ChangeNotifier {
   }
 
   void _handleForwardKeyUp() {
-    // ✅ 修复：无论是否 block，倍速和按键状态必须先重置，
+    //  修复：无论是否 block，倍速和按键状态必须先重置，
     // 否则 keyUp 被 block 吞掉时会导致倍速卡住不恢复。
     _isForwardKeyPressed = false;
 

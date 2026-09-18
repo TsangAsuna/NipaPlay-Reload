@@ -152,7 +152,7 @@ class _NipaPlayNextOverlayState extends State<NipaPlayNextOverlay>
         final fontFamily = customFontFamily.isNotEmpty
             ? customFontFamily
             : (textStyle.fontFamily ?? themeFontFamily);
-        // ⚠️ Bug 3 修复: 合并系统 Emoji 字体到 fallback 列表
+        //  Bug 3 修复: 合并系统 Emoji 字体到 fallback 列表
         // 压测日志 ATLAS-DIAG-BUG3 显示 Emoji 尺寸正常(zeroSize=0)但画面不可见，
         // 最可能原因是 Impeller toImageSync 路径下彩色 Emoji(CBDT/COLRv1)光栅化失败。
         // 显式添加系统 Emoji 字体名可触发不同的 Fallback 路径选择。

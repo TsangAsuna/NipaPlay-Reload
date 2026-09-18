@@ -366,7 +366,7 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   // 观看记录节流：记录上一次更新所处的10秒分桶，避免同一时间窗内重复写DB与通知Provider
   int _lastHistoryUpdateBucket = -1;
   // （保留占位，若未来要做更细粒度同步节流可再启用）
-  // 🔥 新增：Ticker相关字段
+  //  新增：Ticker相关字段
   Ticker? _uiUpdateTicker;
   int _lastTickTime = 0;
   // 节流：UI刷新与位置保存
@@ -392,7 +392,7 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   int _lastDiagDriftSnapMs = 0; // [DRIFT-SNAP-DIAG] 大漂移对齐日志节流
   double? _seekTargetMs; // seek 目标位置，player.position 追上后清除
   bool _anchorSetBySeek =
-      false; // ✅ 标记 _smoothAnchorMs 是否由 seek/loop 操作设置（区分首帧加载 vs seek 后旧 playerMs）
+      false; //  标记 _smoothAnchorMs 是否由 seek/loop 操作设置（区分首帧加载 vs seek 后旧 playerMs）
   double? _pausedPlaybackTimeMs; // 暂停时保存的 playbackTimeMs，用于恢复时平滑衔接
   Timer? _hideControlsTimer;
   Timer? _hideMouseTimer;
@@ -1758,7 +1758,7 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
     _focusNode.dispose();
     _uiUpdateTimer?.cancel(); // 清理UI更新定时器
 
-    // 🔥 新增：清理Ticker资源
+    //  新增：清理Ticker资源
     if (_uiUpdateTicker != null) {
       _uiUpdateTicker!.stop();
       _uiUpdateTicker!.dispose();

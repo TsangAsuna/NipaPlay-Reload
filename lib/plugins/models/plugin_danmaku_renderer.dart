@@ -22,8 +22,8 @@ class PluginDanmakuRenderer {
   });
 
   static const int supportedApiVersion = 1;
-  static const String titanLocalSendPrefix = '🟩 ';
-  static const String titanLocalSendSuffix = ' 🟩';
+  static const String titanLocalSendPrefix = ' ';
+  static const String titanLocalSendSuffix = ' ';
 
   final String pluginId;
   final String id;

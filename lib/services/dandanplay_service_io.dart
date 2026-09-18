@@ -2083,10 +2083,10 @@ class DandanplayService {
 
   /// 通过 TMDB ID 获取番剧详情（两步调用）
   ///
-  /// 1. /api/v2/search/episodes?tmdbId={tmdbId} → 获取正确的 animeId
-  /// 2. /api/v2/bangumi/{animeId} → 获取含 episodeNumber 的剧集列表
+  /// 1. /api/v2/search/episodes?tmdbId={tmdbId}  获取正确的 animeId
+  /// 2. /api/v2/bangumi/{animeId}  获取含 episodeNumber 的剧集列表
   ///
-  /// [seasonNumber] 可选，用于多 anime 结果时按季度选择（S1→第1个, S2→第2个）
+  /// [seasonNumber] 可选，用于多 anime 结果时按季度选择（S1第1个, S2第2个）
   /// 返回与 bgmid API 结构一致的 bangumi 数据
   static Future<Map<String, dynamic>?> getBangumiByTmdbId(
     int tmdbId, {

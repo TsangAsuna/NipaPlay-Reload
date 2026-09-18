@@ -235,7 +235,7 @@ class NipaPlayNextEngine {
 
     // ── 时序回退检测（Loop/Seek Back）或大跨度跳变（Seek Forward >1s）──
     // 循环播放后同ID弹幕重新入场时，_toPositionedItemV2 的 existing 分支
-    // 仅更新 x/y 但保留旧 displayX → drift = displayX - x 巨大 → HARD_SNAP。
+    // 仅更新 x/y 但保留旧 displayX  drift = displayX - x 巨大  HARD_SNAP。
     // 遍历 _items 全量重置 displayX=NaN，确保所有弹幕（含未入场的）
     // 在下一帧 Painter 中走首帧初始化路径（displayX = item.x）。
     // [MICRO-ROLLBACK-DIAG] 根因B诊断：追踪微回退（<1s）不触发检测的情况
@@ -251,7 +251,7 @@ class NipaPlayNextEngine {
     } else if (timeDelta < 0.0 && timeDelta.abs() <= 1.0) {
       // [MICRO-ROLLBACK-DIAG] 微回退检测：0 < |timeDelta| <= 1.0
       // 假设：平滑时钟 .round() 舍入误差导致 playbackTimeMs 微回退
-      // → currentTimeSeconds 微回退 → x 短暂变大 → displayX 未同步 → 回弹
+      //  currentTimeSeconds 微回退  x 短暂变大  displayX 未同步  回弹
       // 当前阈值 >1.0s 不覆盖微回退，需要降低阈值或在此处处理
       if (!kReleaseMode) {
         final rollbackMs = (timeDelta * 1000.0).abs();
@@ -268,7 +268,7 @@ class NipaPlayNextEngine {
               }
             }
             debugPrint('[MICRO-ROLLBACK-DIAG] time rollback: '
-                '${_lastLayoutTime.toStringAsFixed(4)}s → ${currentTimeSeconds.toStringAsFixed(4)}s '
+                '${_lastLayoutTime.toStringAsFixed(4)}s  ${currentTimeSeconds.toStringAsFixed(4)}s '
                 'rollback=${rollbackMs.toStringAsFixed(2)}ms '
                 'affectedScrollItems=$affectedCount '
                 'NOT resetting displayX (threshold >1.0s)');
@@ -1060,7 +1060,7 @@ class NipaPlayNextEngine {
       }
     }
 
-    // 纯十进制数字字符串（如 B站弹幕 color=16711680 → 红色）
+    // 纯十进制数字字符串（如 B站弹幕 color=16711680  红色）
     // danmaku_parser.dart 可能将整数颜色 toString() 后传入，
     // 此时值如 "16711680" 不带任何前缀，需要作为十进制整数解析。
     // 格式为 0xRRGGBB（与B站弹幕协议一致）。

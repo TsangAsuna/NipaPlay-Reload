@@ -33,7 +33,7 @@ class DanmakuParser {
       final cInput = arena.allocUtf8(xml);
       final outString = arena.allocNpString();
 
-      // ⚠️ 必须使用 UTF-8 字节长度而非 Dart String.length（UTF-16 码元数）。
+      //  必须使用 UTF-8 字节长度而非 Dart String.length（UTF-16 码元数）。
       // 对于含中文的弹幕 XML，UTF-8 字节数远大于 UTF-16 码元数，
       // 例如 dartStringLength=3937371 vs utf8ByteLength=5856986 (diff=1919615)。
       // 如果传入 UTF-16 长度，C++ 的 string_view 会被截断，导致解析失败。
@@ -77,7 +77,7 @@ class DanmakuParser {
       final cInput = arena.allocUtf8(jsonStr);
       final outString = arena.allocNpString();
 
-      // ⚠️ 必须使用 UTF-8 字节长度而非 Dart String.length（UTF-16 码元数）。
+      //  必须使用 UTF-8 字节长度而非 Dart String.length（UTF-16 码元数）。
       // 对于含中文的弹幕 JSON，UTF-8 字节数远大于 UTF-16 码元数，
       // 例如 dartStringLength=3005603 vs utf8ByteLength=3591806 (diff=586203)。
       // 如果传入 UTF-16 长度，C++ 的 string_view 会被截断，导致 rapidjson 解析失败。
@@ -126,7 +126,7 @@ class DanmakuParser {
 
   /// 解析弹幕列表并标准化 — 优先 C++，失败则 fallback 到 Dart compute()
   ///
-  /// C++ 路径: jsonEncode(danmakuList) → C++ parseJson → jsonDecode → List<Map>
+  /// C++ 路径: jsonEncode(danmakuList)  C++ parseJson  jsonDecode  List<Map>
   /// Dart 路径: compute(parseDanmakuListInBackground, danmakuList)
   ///
   /// 注意: C++ 路径有 JSON 往返序列化开销（3次），但对于万级弹幕列表，

@@ -1165,7 +1165,7 @@ class _NipaplayLargeScreenAnimeDetailPageState
                       ),
                       const Spacer(),
                       Text(
-                        '↑/↓ 切换区域  ←/→ 选集  Enter 播放',
+                        '/ 切换区域  / 选集  Enter 播放',
                         locale: const Locale('zh-Hans', 'zh'),
                         style: TextStyle(
                           color: isDarkMode ? Colors.white54 : Colors.black45,

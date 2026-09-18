@@ -107,7 +107,7 @@ class MsdfTextRenderer {
     shader.setFloat(_kRectW, glyphW);
     shader.setFloat(_kRectH, glyphH);
 
-    // fillColor: decode ARGB32 → float rgb + outlineSelector
+    // fillColor: decode ARGB32  float rgb + outlineSelector
     final double r = ((fillColorARGB >> 16) & 0xFF) / 255.0;
     final double g = ((fillColorARGB >> 8) & 0xFF) / 255.0;
     final double b = (fillColorARGB & 0xFF) / 255.0;

@@ -394,7 +394,7 @@ class _JellyfinMappingManagementPageState
               (mapping) => Padding(
                 padding: const EdgeInsets.only(bottom: 5),
                 child: Text(
-                  '${mapping['jellyfin_series_name']} ↔ ${mapping['dandanplay_anime_title']}',
+                  '${mapping['jellyfin_series_name']}  ${mapping['dandanplay_anime_title']}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(

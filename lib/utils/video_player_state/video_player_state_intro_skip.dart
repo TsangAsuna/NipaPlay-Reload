@@ -161,7 +161,7 @@ extension VideoPlayerStateSkipSegments on VideoPlayerState {
 
   /// 合并一路区间信号。
   ///
-  /// ## 优先级（高 → 低，数字见 [SkipSegmentSourceRank]）
+  /// ## 优先级（高  低，数字见 [SkipSegmentSourceRank]）
   ///
   /// | 顺序 | 来源 | 说明 |
   /// |---|---|---|
@@ -195,12 +195,12 @@ extension VideoPlayerStateSkipSegments on VideoPlayerState {
     }
 
     if (existing != null && existing.source != candidate.source) {
-      // 覆盖是预期行为（弹幕先到 → AniSkip 后到改写），打出来方便事后核对
+      // 覆盖是预期行为（弹幕先到  AniSkip 后到改写），打出来方便事后核对
       debugPrint('[跳过片头] ${candidate.source.name}（优先级 '
           '${candidate.source.rank}）覆盖 ${existing.source.name}（优先级 '
           '${existing.source.rank}）的${_kindLabel(candidate.kind)}：'
           '${existing.startSeconds.toStringAsFixed(1)}-'
-          '${existing.endSeconds.toStringAsFixed(1)}s → '
+          '${existing.endSeconds.toStringAsFixed(1)}s  '
           '${candidate.startSeconds.toStringAsFixed(1)}-'
           '${candidate.endSeconds.toStringAsFixed(1)}s');
     } else {
@@ -259,10 +259,10 @@ extension VideoPlayerStateSkipSegments on VideoPlayerState {
   // 手动标过（rank 100）或媒体服务器给了 MediaSegments（rank 40），仍然以后者为准。
   //
   // 链路（每一跳都可能断，断了静默返回，只留弹幕那一路）：
-  //   animeId →(弹弹play 详情) bangumiId
-  //           →(Bangumi /v0/subjects) 日文原名 + 放送年份
-  //           →(AniList GraphQL 搜索) idMal = MAL ID
-  //           →(AniSkip) 片头 / 片尾区间
+  //   animeId (弹弹play 详情) bangumiId
+  //           (Bangumi /v0/subjects) 日文原名 + 放送年份
+  //           (AniList GraphQL 搜索) idMal = MAL ID
+  //           (AniSkip) 片头 / 片尾区间
   //
   // 为什么不直接用 Bangumi 的 infobox 拿 MAL：实测动画条目的 infobox 里没有
   // 这个字段（详见 SkipIdResolver 的类注释）。必须借 AniList 转一道。
@@ -336,7 +336,7 @@ extension VideoPlayerStateSkipSegments on VideoPlayerState {
         // 不做任何覆盖（冷门番、剧场版、AniSkip 未收录都会走到这里）。
         final kept = _skipSegments[SkipSegmentKind.opening];
         debugPrint(kept == null
-            ? '[跳过片头] AniSkip 无数据，且无弹幕推导结果 → 本集不显示跳过按钮'
+            ? '[跳过片头] AniSkip 无数据，且无弹幕推导结果  本集不显示跳过按钮'
             : '[跳过片头] AniSkip 无数据，保留 ${kept.source.name} 的片头区间 '
                 '${kept.startSeconds.toStringAsFixed(1)}-'
                 '${kept.endSeconds.toStringAsFixed(1)}s');

@@ -72,10 +72,10 @@ enum WebDAVSortPreset {
   defaultValue('default', '默认', '文件夹在前，名称 A-Z'),
 
   /// 名称 A-Z（混合排序）
-  nameAsc('name_asc', '名称 A-Z', '所有项目按名称升序（例：A文件夹 → B文件 → C文件夹）'),
+  nameAsc('name_asc', '名称 A-Z', '所有项目按名称升序（例：A文件夹  B文件  C文件夹）'),
 
   /// 名称 Z-A（混合排序）
-  nameDesc('name_desc', '名称 Z-A', '所有项目按名称降序（例：Z文件夹 → Y文件 → X文件夹）'),
+  nameDesc('name_desc', '名称 Z-A', '所有项目按名称降序（例：Z文件夹  Y文件  X文件夹）'),
 
   /// 最新修改
   modifiedDesc('modified_desc', '最新修改', '最近修改的项目在前'),

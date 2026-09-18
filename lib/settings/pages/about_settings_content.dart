@@ -220,7 +220,7 @@ class _AboutSettingsContentState extends State<AboutSettingsContent> {
             [
               TextSpan(text: l10n.aboutStoryPrefix),
               TextSpan(
-                text: 'にぱ〜☆',
+                text: 'にぱ〜',
                 style: TextStyle(
                   color: Colors.pinkAccent.shade100,
                   fontWeight: FontWeight.bold,

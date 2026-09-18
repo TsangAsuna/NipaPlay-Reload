@@ -368,7 +368,7 @@ String _styleFontName(String? fontFamily) {
   }
 }
 
-/// 阴影样式 → (Shadow 深度, BackColour)。
+/// 阴影样式  (Shadow 深度, BackColour)。
 /// ASS 只支持硬阴影（无 blur），用深度 + BackColour 透明度近似 soft/medium/strong。
 /// BackColour 的 alpha = (1 - 阴影不透明度) × 255，越强越不透明。
 (String shadowDepth, String backColour) _resolveShadow(AssShadowStyle style) {
@@ -376,24 +376,24 @@ String _styleFontName(String? fontFamily) {
     case AssShadowStyle.none:
       return ('0.0', '&H00000000');
     case AssShadowStyle.soft:
-      return ('1.0', '&HA8000000'); // 0.34 不透明 → 66% 透 → A8
+      return ('1.0', '&HA8000000'); // 0.34 不透明  66% 透  A8
     case AssShadowStyle.medium:
-      return ('1.5', '&H8F000000'); // 0.44 → 8F
+      return ('1.5', '&H8F000000'); // 0.44  8F
     case AssShadowStyle.strong:
-      return ('2.0', '&H73000000'); // 0.55 → 73
+      return ('2.0', '&H73000000'); // 0.55  73
   }
 }
 
 // ---------- 颜色 / 透明度 ----------
 
-/// `opacity`(0..1) → ASS alpha 字节 `&HAA&`（opacity=0 → AA=FF 全透明）。
+/// `opacity`(0..1)  ASS alpha 字节 `&HAA&`（opacity=0  AA=FF 全透明）。
 String _alphaHexFromOpacity(double opacity) {
   final o = opacity.clamp(0.0, 1.0);
   final alpha = ((1.0 - o) * 255.0).round().clamp(0, 255);
   return '&H${alpha.toRadixString(16).toUpperCase().padLeft(2, '0')}&';
 }
 
-/// `0xRRGGBB` → ASS `\c&HBBGGRR&` 覆盖（白色则省略，沿用样式）。
+/// `0xRRGGBB`  ASS `\c&HBBGGRR&` 覆盖（白色则省略，沿用样式）。
 String _colorOverride(int rgb) {
   if (rgb == 0xFFFFFF) return '';
   final r = (rgb >> 16) & 0xFF;
@@ -404,7 +404,7 @@ String _colorOverride(int rgb) {
 }
 
 /// 暗色弹幕（近纯黑）用白描边，其余沿用样式黑描边。
-/// 与 Next2/DFM+ 渲染管线 `stroke_color` 一致：r/g/b 均 ≤ 8 视为黑 → 白描边。
+/// 与 Next2/DFM+ 渲染管线 `stroke_color` 一致：r/g/b 均 ≤ 8 视为黑  白描边。
 /// 返回 ASS `\3c` 覆盖（空 = 沿用样式黑描边）。
 String _outlineColorOverride(int rgb) {
   final r = (rgb >> 16) & 0xFF;
@@ -591,7 +591,7 @@ void _writeHeader(
 }
 
 // ============================================================
-// 预算条目 → ASS（复用内核布局层如 DFM+ 的计算结果）
+// 预算条目  ASS（复用内核布局层如 DFM+ 的计算结果）
 // ============================================================
 
 /// 预算好的弹幕条目：车道/碰撞/速度由内核布局层（如 DFM+）预先算好，
@@ -701,11 +701,11 @@ String convertDanmakuToAssFromPrepared(
       final String x1;
       final String x2;
       if (it.typeCode == 6) {
-        // ScrollLR：左→右
+        // ScrollLR：左右
         x1 = (-it.width).toStringAsFixed(1);
         x2 = playResX.toString();
       } else {
-        // ScrollRL：右→左
+        // ScrollRL：右左
         x1 = playResX.toString();
         x2 = (-it.width).toStringAsFixed(1);
       }

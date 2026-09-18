@@ -610,7 +610,7 @@ class _NipaplayLargeScreenScaffoldLayoutState
     final deflection = value.abs();
 
     if (newCommand == null) {
-      // 该轴回到死区内 → 取消对应轴的重复定时器
+      // 该轴回到死区内  取消对应轴的重复定时器
       if (isXAxis) {
         _stickXCommand = null;
         _stickXDeflection = 0;
@@ -626,7 +626,7 @@ class _NipaplayLargeScreenScaffoldLayoutState
     }
 
     if (newCommand == currentCommand) {
-      // 同轴同方向偏移量变化 → 仅更新偏移量
+      // 同轴同方向偏移量变化  仅更新偏移量
       if (isXAxis) {
         _stickXDeflection = deflection;
       } else {
@@ -635,7 +635,7 @@ class _NipaplayLargeScreenScaffoldLayoutState
       return;
     }
 
-    // 该轴方向改变 → 立即触发一次，然后启动对应轴的重复定时器
+    // 该轴方向改变  立即触发一次，然后启动对应轴的重复定时器
     if (isXAxis) {
       _stickXRepeatTimer?.cancel();
       _stickXCommand = newCommand;
@@ -650,17 +650,17 @@ class _NipaplayLargeScreenScaffoldLayoutState
   }
 
   /// 启动单轴重复触发。延迟随偏移量变化：
-  /// - 轻推（刚过死区）→ 初始延迟 650ms，之后 350ms 重复
-  /// - 重推（满偏移）→ 初始延迟 400ms，之后 200ms 重复
+  /// - 轻推（刚过死区） 初始延迟 650ms，之后 350ms 重复
+  /// - 重推（满偏移） 初始延迟 400ms，之后 200ms 重复
   void _startAxisRepeat(bool isXAxis, NipaplayLargeScreenInputCommand command,
       double deflection) {
     final t = ((deflection - _stickDeadZone) / (1.0 - _stickDeadZone))
         .clamp(0.0, 1.0);
     final initialDelay = Duration(
-      milliseconds: (650 - t * 250).round(), // 650ms → 400ms
+      milliseconds: (650 - t * 250).round(), // 650ms  400ms
     );
     final repeatInterval = Duration(
-      milliseconds: (350 - t * 150).round(), // 350ms → 200ms
+      milliseconds: (350 - t * 150).round(), // 350ms  200ms
     );
 
     void startPeriodic() {

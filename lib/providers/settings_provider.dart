@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nipaplay/constants/settings_keys.dart';
 import 'package:nipaplay/constants/media_extensions.dart';
@@ -7,6 +11,7 @@ import 'package:nipaplay/models/danmaku_auto_load_strategy.dart';
 import 'package:nipaplay/utils/external_player_utils.dart';
 import 'package:nipaplay/utils/globals.dart' as globals;
 import 'package:nipaplay/utils/player_event_log.dart';
+import 'package:nipaplay/utils/storage_service.dart';
 
 class SettingsProvider with ChangeNotifier {
   late SharedPreferences _prefs;
@@ -160,7 +165,51 @@ class SettingsProvider with ChangeNotifier {
       '弹幕超采样加载: v2=$v2Stored legacy=$legacyStored -> '
           '$_danmakuSupersample${_danmakuSupersample == 0.0 ? '（关闭）' : 'x'}',
     );
+    // 镜像文件（flush 落盘）比 NSUserDefaults 更能扛住“设置完立刻杀进程”：
+    // 若镜像与偏好不一致，以镜像为准并修复偏好存储。
+    unawaited(_reconcileSupersampleMirror());
     notifyListeners();
+  }
+
+  /// 弹幕超采样镜像文件：flush 落盘，强持久化（NSUserDefaults 在杀进程时
+  /// 可能丢失最近写入，这正是“设置关闭后重启不生效、播放视频后才生效”的根因）。
+  Future<File> _supersampleMirrorFile() async {
+    final baseDir = await StorageService.getAppStorageDirectory();
+    return File(p.join(baseDir.path, 'danmaku_supersample.txt'));
+  }
+
+  Future<void> _writeSupersampleMirror(double value) async {
+    try {
+      final file = await _supersampleMirrorFile();
+      await file.writeAsString(_encodeDanmakuSupersample(value), flush: true);
+    } catch (e) {
+      debugPrint('[SettingsProvider] 弹幕超采样镜像写入失败: $e');
+    }
+  }
+
+  Future<void> _reconcileSupersampleMirror() async {
+    try {
+      final file = await _supersampleMirrorFile();
+      if (!await file.exists()) return;
+      final fromFile = _parseDanmakuSupersample(await file.readAsString());
+      if (fromFile == null || fromFile == _danmakuSupersample) {
+        return;
+      }
+      _danmakuSupersample = fromFile;
+      await _prefs.setString(
+        SettingsKeys.danmakuSupersampleV2,
+        _encodeDanmakuSupersample(fromFile),
+      );
+      await _prefs.setDouble(SettingsKeys.danmakuSupersample, fromFile);
+      debugPrint('[SettingsProvider] 弹幕超采样以镜像文件为准: $fromFile');
+      logPlayerEvent(
+        'Danmaku',
+        '弹幕超采样以镜像文件为准: ${fromFile == 0.0 ? '关闭(0.0)' : '${fromFile}x'}',
+      );
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[SettingsProvider] 弹幕超采样镜像读取失败: $e');
+    }
   }
 
   /// 解析规范化字符串（'0.0'/'1.5'/'2.0'，容忍 '0'/'关闭' 等写法），非法返回 null。
@@ -339,7 +388,9 @@ class SettingsProvider with ChangeNotifier {
     _danmakuSupersample = normalized;
     debugPrint('[SettingsProvider] 弹幕超采样设置: $normalized');
     try {
-      // 字符串键为权威存档（0.0=关闭也必须落盘），double 旧键同步写以兼容降级。
+      // 镜像文件先落盘（flush，强持久化）；偏好存储随后双写以兼容降级。
+      // 顺序保证：只要用户看到设置成功，镜像文件一定已持久化。
+      await _writeSupersampleMirror(normalized);
       await _prefs.setString(
         SettingsKeys.danmakuSupersampleV2,
         _encodeDanmakuSupersample(normalized),

@@ -423,23 +423,23 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
         final parts = <String>[];
         if (restoreResult.preferencesResult != null) {
           final r = restoreResult.preferencesResult!;
-          parts.add('设置${r.success ? "✓" : "✗"}');
+          parts.add('设置${r.success ? "" : ""}');
         }
         if (restoreResult.mediaLibrariesResult != null) {
           final r = restoreResult.mediaLibrariesResult!;
-          parts.add('媒体库${r.success ? "✓" : "✗"}');
+          parts.add('媒体库${r.success ? "" : ""}');
         }
         if (restoreResult.watchHistoryResult != null) {
           final r = restoreResult.watchHistoryResult!;
-          parts.add('历史${r.restoredCount}条${r.success ? "✓" : "✗"}');
+          parts.add('历史${r.restoredCount}条${r.success ? "" : ""}');
         }
         if (restoreResult.episodeMatchesResult != null) {
           final r = restoreResult.episodeMatchesResult!;
-          parts.add('匹配${r.restoredCount}条${r.success ? "✓" : "✗"}');
+          parts.add('匹配${r.restoredCount}条${r.success ? "" : ""}');
         }
         if (restoreResult.accountsResult != null) {
           final r = restoreResult.accountsResult!;
-          parts.add('账户${r.success ? "✓" : "✗"}');
+          parts.add('账户${r.success ? "" : ""}');
         }
 
         _showMessage('恢复完成: ${parts.join(" ")}，部分数据需要重启应用生效');

@@ -246,7 +246,7 @@ class _DashboardHomePageState extends State<DashboardHomePage>
     super.initState();
     _heroBannerIndexNotifier = ValueNotifier(0);
 
-    // 🔥 修复Flutter状态错误：将数据加载移到addPostFrameCallback中
+    //  修复Flutter状态错误：将数据加载移到addPostFrameCallback中
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _setupProviderListeners();
       _startAutoSwitch();
@@ -255,7 +255,7 @@ class _DashboardHomePageState extends State<DashboardHomePage>
         isMounted: () => mounted,
       );
 
-      // 🔥 在build完成后安全地加载数据，避免setState during build错误
+      //  在build完成后安全地加载数据，避免setState during build错误
       if (mounted) {
         _loadData(
           forceRefreshRecommended: true,
@@ -886,7 +886,7 @@ class _DashboardHomePageState extends State<DashboardHomePage>
         debugPrint('DashboardHomePage: 刷新WatchHistoryProvider失败: $e');
       }
 
-      // 🔥 修复Flutter状态错误：使用addPostFrameCallback确保不在build期间调用
+      //  修复Flutter状态错误：使用addPostFrameCallback确保不在build期间调用
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _loadData();

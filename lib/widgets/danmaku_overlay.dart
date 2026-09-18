@@ -154,8 +154,8 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
         }
 
         if (kernelType == DanmakuRenderEngine.nipaplayNext) {
-          // Next++ ON → NipaPlayNextOverlay (C++ FFI V2 + atlas + vsync + Emoji bypass)
-          // Next++ OFF → NipaPlayNextOldOverlay (d6592232版 C++ FFI + TextPainter逐条 + playbackTimeMs驱动)
+          // Next++ ON  NipaPlayNextOverlay (C++ FFI V2 + atlas + vsync + Emoji bypass)
+          // Next++ OFF  NipaPlayNextOldOverlay (d6592232版 C++ FFI + TextPainter逐条 + playbackTimeMs驱动)
           if (DanmakuKernelFactory.isNextPlusPlusEnabled) {
             return NipaPlayNextOverlay(
               danmakuList: activeDanmakuList,

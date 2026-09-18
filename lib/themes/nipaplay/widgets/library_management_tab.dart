@@ -188,12 +188,12 @@ class _LibraryManagementTabState extends State<LibraryManagementTab> {
   int _sortOption =
       0; // 0: 文件名升序, 1: 文件名降序, 2: 修改时间升序, 3: 修改时间降序, 4: 大小升序, 5: 大小降序
   static const List<String> _sortOptionLabels = [
-    '文件名 (A→Z)',
-    '文件名 (Z→A)',
-    '修改时间 (旧→新)',
-    '修改时间 (新→旧)',
-    '文件大小 (小→大)',
-    '文件大小 (大→小)',
+    '文件名 (AZ)',
+    '文件名 (ZA)',
+    '修改时间 (旧新)',
+    '修改时间 (新旧)',
+    '文件大小 (小大)',
+    '文件大小 (大小)',
   ];
 
   static const Set<String> _batchMatchVideoExtensions = {
@@ -4667,7 +4667,7 @@ class _LibraryManagementTabState extends State<LibraryManagementTab> {
             // 保存更新后的历史记录
             await WatchHistoryManager.addOrUpdateHistory(updatedHistory);
 
-            debugPrint('✅ 成功更新弹幕匹配信息：');
+            debugPrint(' 成功更新弹幕匹配信息：');
             debugPrint('   文件：$fileName');
             debugPrint('   动画：$animeTitle');
             debugPrint('   集数：$episodeTitle');
@@ -4689,20 +4689,20 @@ class _LibraryManagementTabState extends State<LibraryManagementTab> {
               }
             }
           } catch (e) {
-            debugPrint('❌ 更新弹幕匹配信息失败：$e');
+            debugPrint(' 更新弹幕匹配信息失败：$e');
             if (mounted) {
               BlurSnackBar.show(context, '更新弹幕信息失败：$e');
             }
           }
         } else {
-          debugPrint('⚠️ 弹幕匹配结果缺少必要信息');
+          debugPrint(' 弹幕匹配结果缺少必要信息');
           if (mounted) {
             BlurSnackBar.show(context, '弹幕匹配结果无效');
           }
         }
       }
     } catch (e) {
-      debugPrint('❌ 显示手动匹配弹幕对话框失败：$e');
+      debugPrint(' 显示手动匹配弹幕对话框失败：$e');
       if (mounted) {
         BlurSnackBar.show(context, '打开弹幕匹配对话框失败：$e');
       }
@@ -4777,7 +4777,7 @@ class _LibraryManagementTabState extends State<LibraryManagementTab> {
         // 保存更新后的历史记录
         await WatchHistoryManager.addOrUpdateHistory(clearedHistory);
 
-        debugPrint('✅ 成功移除扫描结果：$fileName');
+        debugPrint(' 成功移除扫描结果：$fileName');
 
         // 显示成功提示
         if (mounted) {
@@ -4790,7 +4790,7 @@ class _LibraryManagementTabState extends State<LibraryManagementTab> {
           _refreshExpandedFolderContents(p.dirname(filePath));
         }
       } catch (e) {
-        debugPrint('❌ 移除扫描结果失败：$e');
+        debugPrint(' 移除扫描结果失败：$e');
         if (mounted) {
           BlurSnackBar.show(context, '移除扫描结果失败：$e');
         }

@@ -780,7 +780,7 @@ extension VideoPlayerStateDanmaku on VideoPlayerState {
   /// 为外部播放器弹幕外挂准备过滤后的弹幕列表。
   ///
   /// 与 [loadDanmaku] 不同：**不写** [_danmakuTracks]/[_danmakuList]，不影响
-  /// 内置播放器当前状态。流程复用 缓存→网络→解析→插件过滤→屏蔽过滤→随机色，
+  /// 内置播放器当前状态。流程复用 缓存网络解析插件过滤屏蔽过滤随机色，
   /// 返回与内置显示口径一致的过滤后列表。
   ///
   /// 调用方需保证此时内置播放器未在并发加载弹幕（插件过滤用共享 pending 缓冲）。
@@ -796,7 +796,7 @@ extension VideoPlayerStateDanmaku on VideoPlayerState {
       return const [];
     }
 
-    // 1. 缓存 → 网络
+    // 1. 缓存  网络
     List<dynamic>? raw;
     try {
       final tCache = DateTime.now();
@@ -864,7 +864,7 @@ extension VideoPlayerStateDanmaku on VideoPlayerState {
     if (pluginModified != null && pluginModified.isNotEmpty) {
       parsed = pluginModified;
       _pluginService?.updateDanmakuData(null);
-      debugPrint('[ExtDanmaku] 插件过滤: $beforePlugin → ${parsed.length} 条');
+      debugPrint('[ExtDanmaku] 插件过滤: $beforePlugin  ${parsed.length} 条');
     } else {
       debugPrint(
           '[ExtDanmaku] 插件未修改 (pluginService=${_pluginService != null})');
@@ -884,7 +884,7 @@ extension VideoPlayerStateDanmaku on VideoPlayerState {
         .where((d) => !shouldBlockDanmaku(d))
         .map(_prepareDanmakuForDisplay)
         .toList();
-    debugPrint('[ExtDanmaku] 屏蔽过滤: $beforeBlock → ${filtered.length} 条');
+    debugPrint('[ExtDanmaku] 屏蔽过滤: $beforeBlock  ${filtered.length} 条');
 
     // 5. 按时间排序
     filtered.sort((a, b) {

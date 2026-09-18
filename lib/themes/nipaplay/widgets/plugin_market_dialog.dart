@@ -233,7 +233,7 @@ class _PluginMarketDialogState extends State<PluginMarketDialog> {
     final pluginService = Provider.of<PluginService>(context, listen: false);
     final index = pluginService.pluginIndex;
 
-    // 构建 remoteId → (localId, version) 的映射，支持前缀匹配
+    // 构建 remoteId  (localId, version) 的映射，支持前缀匹配
     final remoteToLocal = <String, (String, String)>{};
     for (final entry in index.entries) {
       final localId = entry.key;

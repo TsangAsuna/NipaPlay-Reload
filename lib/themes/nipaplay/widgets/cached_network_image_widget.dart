@@ -130,7 +130,7 @@ class _CachedNetworkImageWidgetState extends State<CachedNetworkImageWidget> {
 
   // 新增方法：立即加载基础图片
   void _loadBasicImage() async {
-    // 🔥 根据delayLoad参数决定是否延迟（避免与HEAD验证竞争）
+    //  根据delayLoad参数决定是否延迟（避免与HEAD验证竞争）
     if (widget.delayLoad) {
       await Future.delayed(const Duration(milliseconds: 1500));
     }

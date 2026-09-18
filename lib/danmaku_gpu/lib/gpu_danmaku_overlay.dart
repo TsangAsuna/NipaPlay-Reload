@@ -147,7 +147,7 @@ class _GPUDanmakuOverlayState extends State<GPUDanmakuOverlay> {
     // the painter has the most current data.
     _renderer?.setDanmaku(widget.positionedDanmaku, widget.currentTime);
 
-    // 🔥 修复：使用 Opacity Widget 控制全局弹幕透明度，避免 Canvas 裁剪问题
+    //  修复：使用 Opacity Widget 控制全局弹幕透明度，避免 Canvas 裁剪问题
     return Opacity(
       opacity: widget.opacity,
       child: CustomPaint(

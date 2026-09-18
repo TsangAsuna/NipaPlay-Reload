@@ -33,15 +33,15 @@ double _lastDiagPlaybackRate = -1.0;
 /// │ GPU 命令             │ O(n×glyphs) drawParagraph│ O(n) drawImageRect blit │
 /// │ 倍速滚动             │ 增量定位(墙钟dt×rate)    │ 同上 + EMA dt 平滑     │
 /// │ 批量绘制             │ 始终PictureRecorder      │ 同上                    │
-/// │ 视口剔除             │ 无                       │ drawX+width<0 → skip   │
+/// │ 视口剔除             │ 无                       │ drawX+width<0  skip   │
 /// │ Opacity              │ 始终 Opacity widget      │ opacity<1 才包裹        │
 /// │ Paragraph缓存        │ LRU (O(n) hit)           │ FIFO (O(1) hit)        │
 /// └──────────────────────┴──────────────────────────┴──────────────────────────┘
 ///
 /// GPU 渲染路径对比：
-/// - drawParagraph: GPU 逐字形查找字形纹理 → 逐字形 quad → n×glyphs 次 GPU op
-/// - drawImageRect: GPU 单次纹理采样 + 单 quad → 1 次 GPU op/弹幕
-/// - stroke+fill 光栅化合成: 2 drawParagraph → 1 drawImageRect (GPU op 减半)
+/// - drawParagraph: GPU 逐字形查找字形纹理  逐字形 quad  n×glyphs 次 GPU op
+/// - drawImageRect: GPU 单次纹理采样 + 单 quad  1 次 GPU op/弹幕
+/// - stroke+fill 光栅化合成: 2 drawParagraph  1 drawImageRect (GPU op 减半)
 class NipaPlayNextCanvasPainter extends CustomPainter {
   NipaPlayNextCanvasPainter({
     required this.vsyncNotifier,
@@ -71,8 +71,8 @@ class NipaPlayNextCanvasPainter extends CustomPainter {
   /// 根因修复：暂停状态下，Consumer rebuild 仍可能触发 paint()（因为
   /// Flutter 框架在新旧 painter 对象引用不同时调用 markNeedsPaint），
   /// 而墙钟 Stopwatch 始终运行，导致 dtSeconds > 0，displayX 被推进，
-  /// 与冻结的 item.x 产生 drift → 渐进式校正拉回 → 下次 rebuild 又推进
-  /// → 振荡/鬼畜。将 isPlaying 纳入 dt 计算，暂停时 dt=0 彻底消除此问题。
+  /// 与冻结的 item.x 产生 drift  渐进式校正拉回  下次 rebuild 又推进
+  ///  振荡/鬼畜。将 isPlaying 纳入 dt 计算，暂停时 dt=0 彻底消除此问题。
   final bool isPlaying;
 
   final double timeOffsetSeconds;
@@ -159,19 +159,19 @@ class NipaPlayNextCanvasPainter extends CustomPainter {
       rawDtSeconds = 0.0; // 首帧或 Stopwatch 重置
     } else {
       final deltaUs = currentWallUs - _lastWallUs;
-      // 过大间隔（>100ms，暂停恢复/后台切换）→ 不推进，避免跳帧
+      // 过大间隔（>100ms，暂停恢复/后台切换） 不推进，避免跳帧
       rawDtSeconds = (deltaUs < 100000) ? deltaUs / 1000000.0 : 0.0;
     }
     _lastWallUs = currentWallUs;
 
     // ── EMA 平滑 dt — 消除帧间隔微抖导致的视觉滚动速度不均 ──
-    // 大跳变（暂停恢复/后台切换：rawDt=0 → 恢复后首帧 rawDt 正常）
+    // 大跳变（暂停恢复/后台切换：rawDt=0  恢复后首帧 rawDt 正常）
     // 时重置平滑器，避免滞后拖尾
     // ── 暂停状态感知：暂停时强制 dt=0，阻止 displayX 推进 ──
     // 根因修复：暂停时 vsyncController.stop()，但 Consumer rebuild 仍可能
     // 触发 paint()（Flutter 框架因 painter 对象引用变化调用 markNeedsPaint），
-    // 墙钟 Stopwatch 始终运行 → dtSeconds > 0 → displayX 被推进 →
-    // 与冻结的 item.x 产生 drift → 渐进式校正拉回 → 振荡/鬼畜。
+    // 墙钟 Stopwatch 始终运行  dtSeconds > 0  displayX 被推进 
+    // 与冻结的 item.x 产生 drift  渐进式校正拉回  振荡/鬼畜。
     // 暂停时 dt=0 彻底消除 displayX 的任何增量推进。
     final double dtSeconds;
     if (!isPlaying) {
@@ -215,14 +215,14 @@ class NipaPlayNextCanvasPainter extends CustomPainter {
       _cacheDpr = devicePixelRatio;
     }
 
-    // ── playbackRate 变化检测：倍速切换时重置所有 displayX → item.x ──
+    // ── playbackRate 变化检测：倍速切换时重置所有 displayX  item.x ──
     // 防止倍速切换后 displayX 与 item.x 产生大偏差导致鬼畜回弹。
     // 原因：displayX 按墙钟dt×rate推进，item.x按视频时间推进，
     // 倍速切换时两个时间源短暂不同步，偏差可超50px触发硬snap。
     // 重置后所有弹幕从引擎绝对位置重新开始增量推进，消除偏差。
     if (playbackRate != _lastDiagPlaybackRate) {
       if (!kReleaseMode) {
-        debugPrint('[NEXT-DIAG] RATE CHANGE: $_lastDiagPlaybackRate → $playbackRate');
+        debugPrint('[NEXT-DIAG] RATE CHANGE: $_lastDiagPlaybackRate  $playbackRate');
       }
       _lastDiagPlaybackRate = playbackRate;
       // 倍速切换：将所有可见滚动弹幕的 displayX 强制同步到 item.x
@@ -242,7 +242,7 @@ class NipaPlayNextCanvasPainter extends CustomPainter {
       // ── 增量定位：滚动弹幕用 displayX + 墙钟dt × playbackRate 推进 ──
       // 渐进式校正策略：
       //   - 首次出现(NaN) / seek大跳变(>200px)：硬snap（无视觉干扰）
-      //   - 偏差 50~200px：渐进式校正 lerp(displayX→item.x, 0.15/帧)
+      //   - 偏差 50~200px：渐进式校正 lerp(displayXitem.x, 0.15/帧)
       //     每帧缩减偏差15%，~10帧(≈40ms@240Hz)收敛到<5px不可感知
       //   - 偏差 <50px：不校正，保持增量定位的视觉流畅性
       // 这消除了旧版硬snap 50px阈值导致的鬼畜/回弹，
@@ -265,7 +265,7 @@ class NipaPlayNextCanvasPainter extends CustomPainter {
             if (!kReleaseMode) {
               final now = DateTime.now().millisecondsSinceEpoch;
               if (now - _lastDiagSnapTimeMs >= 1000) {
-                debugPrint('[NEXT-DIAG] HARD SNAP: drift=${drift.toStringAsFixed(1)}px → 0');
+                debugPrint('[NEXT-DIAG] HARD SNAP: drift=${drift.toStringAsFixed(1)}px  0');
                 _lastDiagSnapTimeMs = now;
               }
             }
@@ -295,7 +295,7 @@ class NipaPlayNextCanvasPainter extends CustomPainter {
       final drawY = item.y;
 
       // ── 视口剔除：跳过完全不可见的弹幕 ──
-      // drawX + width < 0 → 已滚出左侧；drawX > size.width → 尚未进入右侧
+      // drawX + width < 0  已滚出左侧；drawX > size.width  尚未进入右侧
       // 剔除后无需 Paragraph 查找/绘制，对密集弹幕场景可减少 30-50% 绘制量
       final itemWidth = item.width;
       if (itemWidth > 0.0) {
@@ -317,7 +317,7 @@ class NipaPlayNextCanvasPainter extends CustomPainter {
       if (outlineStyle == DanmakuOutlineStyle.uniform) {
         // uniform 描边：8方向零模糊 Shadow 烘入 fill Paragraph
         final radius = _resolveUniformOutlineRadius(adjFontSize);
-        // ⚠️ 缓存键必须包含 colorVal（填充色），否则不同颜色的同文本弹幕
+        //  缓存键必须包含 colorVal（填充色），否则不同颜色的同文本弹幕
         // 会命中同一缓存条目，导致颜色被"染"成先缓存弹幕的颜色。
         // strokeColorVal 仅有黑/白两种，无法区分不同填充色。
         final uKey = _key(content, adjFontSize, colorVal,
@@ -360,10 +360,10 @@ class NipaPlayNextCanvasPainter extends CustomPainter {
         rasterKey = fKey;
       }
 
-      // ── 光栅化：Paragraph → ui.Image → drawImageRect ──
+      // ── 光栅化：Paragraph  ui.Image  drawImageRect ──
       // drawParagraph: GPU 逐字形 quad ≈ 10 ops/弹幕
       // drawImageRect: GPU 单次纹理 blit = 1 op/弹幕
-      // stroke+fill 2个 Paragraph 合成1张 Image：2 drawParagraph → 1 drawImageRect
+      // stroke+fill 2个 Paragraph 合成1张 Image：2 drawParagraph  1 drawImageRect
       final raster = _getOrRasterize(rasterKey, fillP, strokeP);
 
       // 自发弹幕边框
@@ -437,7 +437,7 @@ class NipaPlayNextCanvasPainter extends CustomPainter {
     }
 
     // 光栅化：在临时 Canvas 上绘制 Paragraph(s)，合成单张 Image
-    // ⚠️ 必须使用 maxIntrinsicWidth 而非 width：
+    //  必须使用 maxIntrinsicWidth 而非 width：
     //   Paragraph.layout(ParagraphConstraints(width: double.infinity)) 后，
     //   Paragraph.width 返回约束宽度 infinity，而非文本实际宽度；
     //   maxIntrinsicWidth 才是文本在无约束下的真实像素宽度。
@@ -455,7 +455,7 @@ class NipaPlayNextCanvasPainter extends CustomPainter {
 
     // [DPR-SHRINK-BUG] 修复：Canvas.scale(DPR)
     // toImageSync(width, height) 以 1:1 像素映射渲染 Picture 内容，不自动缩放。
-    // 不 scale(DPR) 时 Paragraph 只占图像左上角 1/DPR 比例 → 弹幕缩小。
+    // 不 scale(DPR) 时 Paragraph 只占图像左上角 1/DPR 比例  弹幕缩小。
     rCanvas.scale(devicePixelRatio, devicePixelRatio);
 
     // stroke 先画（底层），fill 后画（顶层）

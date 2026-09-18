@@ -269,7 +269,7 @@ class DanmakuIntroDetector {
     return false;
   }
 
-  // MARK: 报点主簇 → 片头结束点
+  // MARK: 报点主簇  片头结束点
 
   static _IntroHint? _hintFromTargets(
     List<_JumpTarget> targets,

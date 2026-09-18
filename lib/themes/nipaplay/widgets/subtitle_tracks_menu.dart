@@ -247,16 +247,16 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
     }
 
     try {
-      setState(() => _isLoading = true);
+      if (mounted) setState(() => _isLoading = true);
 
       final candidates = await RemoteSubtitleService.instance
           .listCandidatesForVideo(videoPath);
-      if (!mounted) return;
-
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
 
       if (candidates.isEmpty) {
-        BlurSnackBar.show(context, '当前远程目录未找到字幕文件');
+        if (context.mounted) {
+          BlurSnackBar.show(context, '当前远程目录未找到字幕文件');
+        }
         return;
       }
 
@@ -343,11 +343,13 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
         '(${selected.map((c) => c.name).join(', ')})',
       );
 
-      setState(() => _isLoading = true);
+      // 注意：iPad 大屏模式下选择弹窗是全屏页面路由，弹窗关闭时菜单面板
+      // 可能已被卸载。挂载流程必须继续执行到底（只操作 videoState 与持久化），
+      // 所有 UI 操作（setState/SnackBar）按 mounted 逐点保护。
+      if (mounted) setState(() => _isLoading = true);
       var loadedCount = 0;
       var lastIndex = -1;
       for (final candidate in selected) {
-        if (!mounted) return;
         final cachedPath = await RemoteSubtitleService.instance
             .ensureSubtitleCached(candidate);
         final existingIndex =
@@ -357,7 +359,7 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
           // 重新挂载到播放器，而不是跳过——否则「挂载选中」看起来无效果
           lastIndex = existingIndex;
           loadedCount++;
-          await _remountExternalSubtitle(existingIndex);
+          await _remountExternalSubtitle(videoState, existingIndex);
           continue;
         }
         final subtitleInfo = <String, dynamic>{
@@ -378,14 +380,13 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
             'remotePath': candidate.smbPath,
           },
         };
-        setState(() {
-          _externalSubtitles.add(subtitleInfo);
-        });
+        _externalSubtitles.add(subtitleInfo);
+        if (mounted) setState(() {});
         lastIndex = _externalSubtitles.length - 1;
         loadedCount++;
       }
       // 多挂：所有选中的 SRT/VTT 叠加激活；ASS/其他保持最后一项单挂
-      if (mounted && _externalSubtitles.isNotEmpty) {
+      if (_externalSubtitles.isNotEmpty) {
         var applied = false;
         for (var i = 0; i < _externalSubtitles.length; i++) {
           final sub = _externalSubtitles[i];
@@ -408,12 +409,12 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
               lastIndex);
         }
       }
+      logPlayerEvent(
+        'Subtitle',
+        '远程字幕挂载完成: $loadedCount 个，已应用叠层/内核轨',
+      );
       if (mounted && context.mounted) {
         await _saveExternalSubtitles(context);
-        logPlayerEvent(
-          'Subtitle',
-          '远程字幕挂载完成: $loadedCount 个，已应用叠层/内核轨',
-        );
         BlurSnackBar.show(context, '已加载 $loadedCount 个字幕');
       }
     } catch (e) {
@@ -428,10 +429,13 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
   }
 
   // 重新挂载列表已有条目（existingIndex 分支使用）：
-  // SRT/VTT 走叠层叠加挂载，其余走内核轨单挂，保证「挂载选中」对已有字幕也生效
-  Future<void> _remountExternalSubtitle(int index) async {
+  // SRT/VTT 走叠层叠加挂载，其余走内核轨单挂，保证「挂载选中」对已有字幕也生效。
+  // videoState 由调用方传入：菜单面板卸载后 Provider.of 会抛错，挂载不能依赖它。
+  Future<void> _remountExternalSubtitle(
+    VideoPlayerState videoState,
+    int index,
+  ) async {
     if (index < 0 || index >= _externalSubtitles.length) return;
-    final videoState = Provider.of<VideoPlayerState>(context, listen: false);
     final subPath = _externalSubtitles[index]['path'] as String?;
     if (subPath == null || subPath.isEmpty) return;
     final ext = p.extension(subPath).toLowerCase();

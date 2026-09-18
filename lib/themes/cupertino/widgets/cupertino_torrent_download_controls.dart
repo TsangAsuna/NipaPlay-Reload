@@ -327,12 +327,12 @@ class _CupertinoTorrentDownloadViewState
                   if (!compact)
                     _metric(
                       context,
-                      '↓ ${formatTorrentBytes(task.downloadSpeedBytesPerSecond)}/s',
+                      ' ${formatTorrentBytes(task.downloadSpeedBytesPerSecond)}/s',
                     ),
                   if (!compact)
                     _metric(
                       context,
-                      '↑ ${formatTorrentBytes(task.uploadSpeedBytesPerSecond)}/s',
+                      ' ${formatTorrentBytes(task.uploadSpeedBytesPerSecond)}/s',
                     ),
                 ],
               ),

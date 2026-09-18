@@ -25,7 +25,7 @@ extension DashboardHomePageDataLoading on _DashboardHomePageState {
       return;
     }
 
-    // 🔥 修复仪表盘启动问题：确保WatchHistoryProvider已加载
+    //  修复仪表盘启动问题：确保WatchHistoryProvider已加载
     try {
       final watchHistoryProvider =
           Provider.of<WatchHistoryProvider>(context, listen: false);

@@ -35,7 +35,7 @@ Future<DfmPlusFontMetrics> dfmPlusFontMetrics(
         customFontBytes: customFontBytes);
 
 /// Measure the rendered width of a single text string using the same font metrics
-/// as the GPU glyph atlas (glyph_hor_advance → scale_to_px → max fallback).
+/// as the GPU glyph atlas (glyph_hor_advance  scale_to_px  max fallback).
 ///
 /// This ensures collision detection widths match rendering widths exactly.
 /// `custom_font_bytes`: optional custom font file contents (pass None to use default embedded font).

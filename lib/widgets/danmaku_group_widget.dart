@@ -86,7 +86,7 @@ style: TextStyle(fontSize: adjustedFontSize, color: danmakuItem.color),
             x = -danmakuWidth;
             localOpacity = 0;
           } else {
-            // 🔥 修复：弹幕从更远的屏幕外开始，确保时间轴时间点时刚好在屏幕边缘
+            //  修复：弹幕从更远的屏幕外开始，确保时间轴时间点时刚好在屏幕边缘
             final extraDistance = (screenWidth + danmakuWidth) / 10; // 额外距离
             final startX = screenWidth + extraDistance; // 起始位置
             final totalDistance = extraDistance + screenWidth + danmakuWidth; // 总移动距离

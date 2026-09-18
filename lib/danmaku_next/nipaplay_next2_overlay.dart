@@ -241,14 +241,14 @@ class _NipaPlayNext2OverlayState extends State<NipaPlayNext2Overlay> {
     // Use cached DPR from build() instead of reading platformDispatcher.views
     // directly. On Windows, DPR can micro-jitter when the window loses focus,
     // causing pixelWidth/pixelHeight to oscillate by ±1 pixel, which triggers
-    // ensureTexture → isNewEngine → resetScene → flicker.
+    // ensureTexture  isNewEngine  resetScene  flicker.
     final dpr = _lastDevicePixelRatio;
 
     final supersample = context
         .read<SettingsProvider>()
         .danmakuSupersample;
     // True supersampling: texture = backing × supersample (backing = layout ×
-    // dpr). Flutter downsamples on display → anti-aliased edges. Must be
+    // dpr). Flutter downsamples on display  anti-aliased edges. Must be
     // dpr × supersample (NOT max) or 1.5x/2x silently no-op on DPR≥2 devices.
     // The 1.5x setting is the lighter alternative. Clamp only guards extremes.
     final baseDpr = dpr.isFinite ? dpr.clamp(1.0, 4.0).toDouble() : 1.0;
@@ -262,7 +262,7 @@ class _NipaPlayNext2OverlayState extends State<NipaPlayNext2Overlay> {
 
     // Only re-acquire texture if pixel size changed significantly (>=2 pixels).
     // Windows DPR micro-jitter on focus loss can cause ±1 pixel oscillation,
-    // which would trigger a full engine rebuild → resetScene → flicker.
+    // which would trigger a full engine rebuild  resetScene  flicker.
     final int pwDelta = (pixelWidth - _lastTextureWidth).abs();
     final int phDelta = (pixelHeight - _lastTextureHeight).abs();
     bool needsNewTexture = _textureId == null ||

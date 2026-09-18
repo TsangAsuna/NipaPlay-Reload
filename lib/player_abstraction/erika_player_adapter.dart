@@ -1479,7 +1479,7 @@ class ErikaPlayerAdapter
   // ---- 回前台播放停滞自愈（MediaLoadAwarePlayer） ----
 
   /// Play 命令成功返回后布防：若事件静默超过 [_stallEventSilenceThreshold]
-  /// 且仍处于 playing 状态，先 pause→play 快速唤醒，无效再重开媒体自愈。
+  /// 且仍处于 playing 状态，先 pauseplay 快速唤醒，无效再重开媒体自愈。
   ///
   /// 只在“本媒体曾收到过原生位置事件”的 Play 上设防，避免误伤首次起播时的
   /// 网络缓冲（首次起播没有事件是正常的）；回前台恢复、后台后手动点播等都
@@ -1524,16 +1524,16 @@ class ErikaPlayerAdapter
       return;
     }
     if (!_stallNudgeAttempted) {
-      // 第一优先：pause→play 快速唤醒（回前台实测有效，比重开媒体快得多）。
+      // 第一优先：pauseplay 快速唤醒（回前台实测有效，比重开媒体快得多）。
       _stallNudgeAttempted = true;
       debugPrint(
         '[Erika] Play 后位置事件静默 ${silence?.inMilliseconds ?? -1}ms，'
-        '执行 pause→play 快速唤醒',
+        '执行 pauseplay 快速唤醒',
       );
       logPlayerEvent(
         'Erika',
         '检测到回前台播放停滞（${_playbackWatchdogDelay.inSeconds}s 无位置事件），'
-        '自动执行 pause→play 唤醒',
+        '自动执行 pauseplay 唤醒',
         level: 'WARN',
       );
       unawaited(
@@ -1554,7 +1554,7 @@ class ErikaPlayerAdapter
     unawaited(_recoverStalledPlayback());
   }
 
-  /// 轻量唤醒：原生 pause→play。回前台后内核时钟停摆时，用户手动“暂停再
+  /// 轻量唤醒：原生 pauseplay。回前台后内核时钟停摆时，用户手动“暂停再
   /// 播放”能恢复，这里自动做同样的事，免去用户手动操作。
   Future<void> _nudgeStalledPlayback() async {
     if (_disposed) {
@@ -1563,9 +1563,9 @@ class ErikaPlayerAdapter
     try {
       await _player.pause();
       await _player.play();
-      debugPrint('[Erika] pause→play 快速唤醒已下发');
+      debugPrint('[Erika] pauseplay 快速唤醒已下发');
     } catch (error) {
-      debugPrint('[Erika] pause→play 快速唤醒失败: $error');
+      debugPrint('[Erika] pauseplay 快速唤醒失败: $error');
     }
   }
 

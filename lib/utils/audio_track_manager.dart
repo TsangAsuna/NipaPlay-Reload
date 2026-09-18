@@ -179,7 +179,7 @@ class AudioTrackManager {
     }
   }
 
-  /// 保存视频→外部音频的映射
+  /// 保存视频外部音频的映射
   Future<void> saveVideoAudioMapping(String videoPath, String audioPath) async {
     try {
       final prefs = await SharedPreferences.getInstance();

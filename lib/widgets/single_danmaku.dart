@@ -87,7 +87,7 @@ class _SingleDanmakuState extends State<SingleDanmaku> {
     // 计算弹幕相对于当前时间的位置，应用时间偏移
     final timeDiff =
         widget.currentTime - (widget.danmakuTime - widget.timeOffset);
-    //print('[SINGLE_DANMAKU] 📍 "${widget.content.text}" 位置计算: 当前=${widget.currentTime.toStringAsFixed(3)}s, 弹幕=${widget.danmakuTime.toStringAsFixed(3)}s, 差=${timeDiff.toStringAsFixed(3)}s');
+    //print('[SINGLE_DANMAKU]  "${widget.content.text}" 位置计算: 当前=${widget.currentTime.toStringAsFixed(3)}s, 弹幕=${widget.danmakuTime.toStringAsFixed(3)}s, 差=${timeDiff.toStringAsFixed(3)}s');
     final screenWidth = MediaQuery.of(context).size.width;
 
     // 计算弹幕宽度
@@ -121,7 +121,7 @@ class _SingleDanmakuState extends State<SingleDanmaku> {
           _xPosition = -danmakuWidth;
           _opacity = 0;
         } else {
-          // 🔥 修复：弹幕从更远的屏幕外开始，确保时间轴时间点时刚好在屏幕边缘
+          //  修复：弹幕从更远的屏幕外开始，确保时间轴时间点时刚好在屏幕边缘
           final extraDistance = (screenWidth + danmakuWidth) / 10; // 额外距离
           final startX = screenWidth + extraDistance; // 起始位置
           final totalDistance =

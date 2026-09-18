@@ -26,7 +26,7 @@ class DanmakuLayoutResult {
 /// 弹幕条目输入（Dart 侧，传入 DanmakuLayoutEngine.configure）
 class DanmakuLayoutInput {
   final double timeSeconds;
-  final double textWidth; // ★ Dart 侧 TextPainter 预测量
+  final double textWidth; //  Dart 侧 TextPainter 预测量
   final double fontSizeMultiplier;
   final int type; // 0=scroll, 1=top, 2=bottom
   final bool isMe;

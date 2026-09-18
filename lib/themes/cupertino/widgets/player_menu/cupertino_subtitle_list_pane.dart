@@ -409,7 +409,7 @@ class _CupertinoSubtitleListPaneState extends State<CupertinoSubtitleListPane> {
                                   ),
                                   const SizedBox(width: 4),
                                   Text(
-                                    '→ ${entry.formattedEndTime}',
+                                    ' ${entry.formattedEndTime}',
                                     style: CupertinoTheme.of(context)
                                         .textTheme
                                         .textStyle

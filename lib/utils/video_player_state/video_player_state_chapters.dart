@@ -28,7 +28,7 @@ extension VideoPlayerStateChapters on VideoPlayerState {
     // 两段式 seek 设计（PR review 注意点2 优化）：
     // 1. seekTo(章节起点) 同步走 player.seek（精确 seek，毫秒级）+ 立即更新 UI 状态
     //    （_position/_progress/_playbackTimeMs/_isSeeking/平滑时钟锚点），保证"进度条立即动"。
-    // 2. setChapter(index) 走 mpv setProperty("chapter") → MPSEEK_CHAPTER（keyframe 对齐，
+    // 2. setChapter(index) 走 mpv setProperty("chapter")  MPSEEK_CHAPTER（keyframe 对齐，
     //    参考 command.c:996）。mpv chapter seek 会定位到最近 keyframe（可能与精确 seek
     //    位置差 <1 个 keyframe 间隔，通常 <500ms）。
     // 顺序：seekTo 先同步 UI（同步执行），setChapter 用 scheduleMicrotask 延后到下一微任务，
@@ -62,7 +62,7 @@ extension VideoPlayerStateChapters on VideoPlayerState {
       }
       newIndex = i;
     }
-    // 首章节起始 > 0 且 position < 首章节起点 → newIndex 保持 -1（位于首章前）
+    // 首章节起始 > 0 且 position < 首章节起点  newIndex 保持 -1（位于首章前）
     if (newIndex != _currentChapterIndex) {
       _currentChapterIndex = newIndex;
     }

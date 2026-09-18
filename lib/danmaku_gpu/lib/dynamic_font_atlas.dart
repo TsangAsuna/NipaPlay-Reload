@@ -202,13 +202,13 @@ class DynamicFontAtlas {
     double maxRowHeight = 0;
     const atlasWidth = 2048.0; // 使用更大的图集宽度以容纳更多字符
     
-    // 🔥 新增：计算字体度量信息，确保包含完整的ascender和descender
+    //  新增：计算字体度量信息，确保包含完整的ascender和descender
     final fontMetrics = ui.ParagraphBuilder(
       ui.ParagraphStyle(
         fontSize: fontSize * 2.0,
         fontStyle: ui.FontStyle.normal,
       ),
-    )..addText('Ag😀yg|'); // 使用包含各种字符高度的测试字符串
+    )..addText('Agyg|'); // 使用包含各种字符高度的测试字符串
     final paragraph = fontMetrics.build();
     paragraph.layout(const ui.ParagraphConstraints(width: double.infinity));
     
@@ -221,10 +221,10 @@ class DynamicFontAtlas {
 
     final newCharMap = <String, Rect>{};
 
-    // 🔥 修改：计算统一的基线高度，确保所有字符基线对齐
+    //  修改：计算统一的基线高度，确保所有字符基线对齐
     final baselineTextPainter = TextPainter(
       text: TextSpan(
-        text: 'Ag你好😀yg|', // 包含各种字符类型的测试字符串
+        text: 'Ag你好yg|', // 包含各种字符类型的测试字符串
         style: TextStyle(fontSize: fontSize * 2.0, color: color),
       ),
       textDirection: TextDirection.ltr,
@@ -250,11 +250,11 @@ class DynamicFontAtlas {
         maxRowHeight = 0;
       }
       
-      // 🔥 修改：计算字符基线，并基于统一基线进行绘制
+      //  修改：计算字符基线，并基于统一基线进行绘制
       final charBaseline = textPainter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
       final baselineOffset = unifiedBaseline - charBaseline;
       
-      // 🔥 修复：确保字符不会超出行范围，计算安全的Y坐标范围
+      //  修复：确保字符不会超出行范围，计算安全的Y坐标范围
       final baseDrawY = y + topPadding;
       final targetY = baseDrawY + baselineOffset;
       final minY = y.toDouble();
@@ -274,7 +274,7 @@ class DynamicFontAtlas {
         continue;
       }
 
-      // 🔥 修复：保存字符的实际绘制区域，确保在行范围内
+      //  修复：保存字符的实际绘制区域，确保在行范围内
       newCharMap[charStr] = Rect.fromLTWH(x, actualDrawY, charWidth, charHeight);
       
       x += textPainter.width;

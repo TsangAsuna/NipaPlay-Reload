@@ -22,7 +22,7 @@ extension DashboardHomePageActions on _DashboardHomePageState {
               // 刷新观看历史
               Provider.of<WatchHistoryProvider>(context, listen: false)
                   .refresh();
-              // 🔥 修复Flutter状态错误：使用addPostFrameCallback
+              //  修复Flutter状态错误：使用addPostFrameCallback
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (mounted) {
                   _loadData();
@@ -100,7 +100,7 @@ extension DashboardHomePageActions on _DashboardHomePageState {
       if (result != null) {
         // 刷新观看历史
         Provider.of<WatchHistoryProvider>(context, listen: false).refresh();
-        // 🔥 修复Flutter状态错误：使用addPostFrameCallback
+        //  修复Flutter状态错误：使用addPostFrameCallback
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             _loadData();

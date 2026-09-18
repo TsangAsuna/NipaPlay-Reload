@@ -33,10 +33,10 @@ class SimilarityFfiService {
       _available = true;
       // 创建持久引擎实例，复用 ~4 MB scratch buffer
       _engine = SimilarityEngine();
-      debugPrint('[SimilarityFFI] ✅ nipaplay_native DLL 加载成功，引擎可用');
+      debugPrint('[SimilarityFFI]  nipaplay_native DLL 加载成功，引擎可用');
     } catch (e) {
       _available = false;
-      debugPrint('[SimilarityFFI] ❌ nipaplay_native DLL 加载失败: $e');
+      debugPrint('[SimilarityFFI]  nipaplay_native DLL 加载失败: $e');
     }
   }
 
@@ -49,14 +49,14 @@ class SimilarityFfiService {
     }
 
     try {
-      // 转换 Map → DanmakuSimItem
+      // 转换 Map  DanmakuSimItem
       final simItems = items.map((item) => DanmakuSimItem(
         text: item['text'] as String? ?? '',
         mode: item['mode'] as int? ?? 0,
         timeSeconds: (item['time_seconds'] as num?)?.toDouble() ?? 0.0,
       )).toList();
 
-      // 转换 Map → SimilarityConfig
+      // 转换 Map  SimilarityConfig
       final simConfig = SimilarityConfig(
         maxDist: config['max_dist'] as int? ?? 5,
         maxCosine: config['max_cosine'] as int? ?? 45,

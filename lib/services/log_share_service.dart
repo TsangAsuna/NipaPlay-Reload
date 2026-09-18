@@ -8,7 +8,7 @@ class LogShareService {
   static const String _baseUrl = 'https://nipaplay.aimes-soft.com/nipaplay.php';
 
   /// 将服务器返回的 URL 中的 localhost 地址重写为官网域名。
-  /// 例如 http://localhost:8080/view?id=abc → https://nipaplay.aimes-soft.com/nipaplay.php?id=abc
+  /// 例如 http://localhost:8080/view?id=abc  https://nipaplay.aimes-soft.com/nipaplay.php?id=abc
   static String _toPublicUrl(String url) {
     try {
       final uri = Uri.parse(url);

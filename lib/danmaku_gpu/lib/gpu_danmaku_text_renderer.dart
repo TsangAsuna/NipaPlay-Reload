@@ -41,7 +41,7 @@ class GpuDanmakuTextRenderer extends DanmakuTextRenderer {
       createdAt: 0, // id is not used for rendering appearance
     );
 
-    // 🔥 修复：使用 Opacity Widget 控制整体透明度，避免 Canvas 层裁剪问题
+    //  修复：使用 Opacity Widget 控制整体透明度，避免 Canvas 层裁剪问题
     return Opacity(
       opacity: opacity,
       child: CustomPaint(
@@ -53,13 +53,13 @@ class GpuDanmakuTextRenderer extends DanmakuTextRenderer {
           countText: content.countText,
         ),
         // 根据文本内容估算尺寸，以便CustomPaint有正确的绘制区域
-        // 🔥 修复：使用精确的高度，避免第一次绘制时的拉伸问题
+        //  修复：使用精确的高度，避免第一次绘制时的拉伸问题
         size: Size(
           calculateTextWidth(
             content.text + (content.countText ?? ''),
             scale: 0.5 * content.fontSizeMultiplier,
           ),
-          config.fontSize * content.fontSizeMultiplier, // 🔥 修复：使用精确高度
+          config.fontSize * content.fontSizeMultiplier, //  修复：使用精确高度
         ),
       ),
     );
@@ -161,7 +161,7 @@ class GpuDanmakuTextRenderer extends DanmakuTextRenderer {
     final fillColors = <Color>[];
 
     final double strokeOffset = _getStrokeOffset();
-    // 🔥 修复：颜色保持原始不透明度，全局透明度由 GPUDanmakuOverlay 的 Opacity Widget 控制
+    //  修复：颜色保持原始不透明度，全局透明度由 GPUDanmakuOverlay 的 Opacity Widget 控制
     final shadowColor = _getShadowColor(item.color);
     final fillColor = item.color;
 
@@ -194,7 +194,7 @@ class GpuDanmakuTextRenderer extends DanmakuTextRenderer {
       }
       
       final charCenterX = currentX + charWidthScaled / 2;
-      // 🔥 修改：调整字符中心Y坐标，考虑字符图集中的实际高度
+      //  修改：调整字符中心Y坐标，考虑字符图集中的实际高度
       final charCenterY = y + charHeightScaled / 2;
       
       // 验证中心点坐标是否有效
@@ -269,7 +269,7 @@ class GpuDanmakuTextRenderer extends DanmakuTextRenderer {
         }
         
         final charCenterX = currentX + charWidthScaled / 2;
-        // 🔥 修复：计数文本底部对齐 - 基于主文本的高度调整Y坐标
+        //  修复：计数文本底部对齐 - 基于主文本的高度调整Y坐标
         final mainTextHeight = config.fontSize * fontSizeMultiplier;
         final charCenterY = y + mainTextHeight - charHeightScaled / 2;
         
@@ -384,7 +384,7 @@ class GpuDanmakuTextRenderer extends DanmakuTextRenderer {
       throw ArgumentError('Items and positions must have the same length');
     }
 
-    // 🔥 修复：直接在每个弹幕项目上应用透明度
+    //  修复：直接在每个弹幕项目上应用透明度
     for (int i = 0; i < items.length; i++) {
       renderItem(
         canvas,

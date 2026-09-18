@@ -121,8 +121,8 @@ class _DfmPlusOverlayState extends State<DfmPlusOverlay>
   static const double _scrollDurationScaleMax = 1.3;
 
   /// Effective scroll duration = base × (layoutWidth / refWidth), clamped.
-  /// A 1280px landscape window → 1.0 (unchanged); 1920px → 1.3 (mildly
-  /// slower, vs the old un-scaled ~1.5× px/s fly-by); 900px → 0.9 (mildly
+  /// A 1280px landscape window  1.0 (unchanged); 1920px  1.3 (mildly
+  /// slower, vs the old un-scaled ~1.5× px/s fly-by); 900px  0.9 (mildly
   /// faster). Keeps the familiar speed on common screens while taming the
   /// wide-screen fly-by.
   double _scaledScrollDuration() {
@@ -399,7 +399,7 @@ class _DfmPlusOverlayState extends State<DfmPlusOverlay>
         // visible flicker.
         if ((_lastDevicePixelRatio - dpr).abs() > 0.001) {
           _lastDevicePixelRatio = dpr;
-          // DPR change may affect pixelWidth/pixelHeight → needsNewTexture.
+          // DPR change may affect pixelWidth/pixelHeight  needsNewTexture.
           // Queue an update so the texture size is re-evaluated, but do NOT
           // set _forceLayout (that would re-run configure/overwriteInsert).
           _queueUpdate();
@@ -637,7 +637,7 @@ class _DfmPlusOverlayState extends State<DfmPlusOverlay>
     // Use cached DPR from build() instead of reading platformDispatcher.views
     // directly. On Windows, DPR can micro-jitter when the window loses focus,
     // causing pixelWidth/pixelHeight to oscillate by ±1 pixel, which triggers
-    // needsNewTexture → ensureTexture → isNewEngine → resetScene → flicker.
+    // needsNewTexture  ensureTexture  isNewEngine  resetScene  flicker.
     final dpr = _lastDevicePixelRatio;
 
     final supersample = _danmakuSupersample;
@@ -665,7 +665,7 @@ class _DfmPlusOverlayState extends State<DfmPlusOverlay>
     // ensureTexture await on every frame when texture ID is already stable).
     // Also apply a pixel threshold: Windows DPR micro-jitter on focus loss can
     // cause pixelWidth/pixelHeight to oscillate by ±1 pixel, which would
-    // trigger a full texture/engine rebuild (isNewEngine → resetScene → flicker).
+    // trigger a full texture/engine rebuild (isNewEngine  resetScene  flicker).
     // Only rebuild when the pixel size change is significant (>=2 pixels).
     final int pwDelta = (pixelWidth - _lastTextureWidth).abs();
     final int phDelta = (pixelHeight - _lastTextureHeight).abs();

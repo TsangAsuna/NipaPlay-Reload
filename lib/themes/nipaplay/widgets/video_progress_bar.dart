@@ -735,7 +735,7 @@ class _VideoProgressBarState extends State<VideoProgressBar>
         if (hitIdx >= 0 && hitIdx != widget.currentChapter) {
           debugPrint('[CHAPTER-DIAG] 点击命中分割线 #$hitIdx '
               '"${widget.chapters[hitIdx].title}" @ ${widget.chapters[hitIdx].startMs}ms '
-              '(x=${localPosition.dx.toStringAsFixed(1)}, 容差=${_chapterTickHitTolerance}px) → seekToChapter');
+              '(x=${localPosition.dx.toStringAsFixed(1)}, 容差=${_chapterTickHitTolerance}px)  seekToChapter');
           widget.videoState.seekToChapter(hitIdx);
           return;
         }

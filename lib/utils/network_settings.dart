@@ -140,7 +140,7 @@ class NetworkSettings {
     final prefixUri = Uri.tryParse(prefix);
     final srcUri = Uri.tryParse(url);
     if (srcUri != null) {
-      // 官方域名的残留 URL（旧版本直连缓存）→ 用当前 bangumi server 替换 host，走反代
+      // 官方域名的残留 URL（旧版本直连缓存） 用当前 bangumi server 替换 host，走反代
       if (srcUri.host == 'api.bgm.tv' || srcUri.host == 'next.bgm.tv') {
         final server = _cachedBangumiServer;
         if (server.isNotEmpty && server != bangumiDefaultServer) {

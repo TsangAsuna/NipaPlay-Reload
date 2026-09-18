@@ -316,7 +316,7 @@ class _SwitchableViewState extends State<SwitchableView> {
         );
       }
 
-      // 🔥 CPU优化：仅渲染当前页面（会在切换时销毁/重建页面）
+      //  CPU优化：仅渲染当前页面（会在切换时销毁/重建页面）
       if (safeIndex >= 0 && safeIndex < length) {
         return widget.children[safeIndex];
       }

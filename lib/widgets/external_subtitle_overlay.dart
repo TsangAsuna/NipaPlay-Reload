@@ -29,6 +29,10 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
   /// 字幕背景（功能区按钮切换；默认无背景）
   bool _subtitleBgEnabled = false;
   Timer? _twoFingerTimer;  // 双指长按识别定时器
+  // 字幕轴同步诊断去重
+  String _lastLoggedCueKey = '';
+  int _lastSyncLogAtMs = 0;
+  static const int _syncLogMinIntervalMs = 1000;
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +50,15 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                 1000;
         final subtitleText =
             videoState.getCurrentExternalSubtitleTextAt(subtitleTimeMs.round());
+
+        // 字幕轴同步诊断：每条字幕首次显示时记录一次内核、原始播放器位置、
+        // 平滑时钟与实际查表时间，用于定位内核间（MDK vs libmpv）的轴偏移
+        // 是来自位置源还是平滑时钟。
+        _logSubtitleSyncOnce(
+          videoState: videoState,
+          cueKey: subtitleText,
+          subtitleTimeMs: subtitleTimeMs.round(),
+        );
 
         if (subtitleText.trim().isEmpty || videoState.subtitleOpacity <= 0) {
           return const SizedBox.shrink();
@@ -416,10 +429,17 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
           Color(0xFFFFD54F), Color(0xFFFF8A65), Color(0xFFAED581),
           Color(0xFF81D4FA), Color(0xFFF48FB1), Color(0xFFB39DDB),
         ];
-        return SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            child: Column(
+        // 键盘弹出时把整块内容抬到键盘上方：底部内边距 = 键盘高度，
+        // 否则输入框和滑块会被键盘完全遮挡（isScrollControlled 已开，
+        // 配合 SingleChildScrollView 可滚动到被顶起的部分）。
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+          ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -583,8 +603,33 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
               ],
             ),
           ),
+          ),
         );
       },
+    );
+  }
+
+  /// 字幕轴同步诊断：同一条字幕只记一次，且全局每秒最多一条，
+  /// 输出 [SubtitleSync] 供日志终端比对内核间的时间轴来源差异。
+  void _logSubtitleSyncOnce({
+    required VideoPlayerState videoState,
+    required String cueKey,
+    required int subtitleTimeMs,
+  }) {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (cueKey == _lastLoggedCueKey ||
+        nowMs - _lastSyncLogAtMs < _syncLogMinIntervalMs) {
+      return;
+    }
+    _lastLoggedCueKey = cueKey;
+    _lastSyncLogAtMs = nowMs;
+    debugPrint(
+      '[SubtitleSync] kernel=${videoState.player.getPlayerKernelName()} '
+      'smooth=${widget.currentPositionMs.round()}ms '
+      'raw=${videoState.player.position}ms '
+      'lookup=${subtitleTimeMs}ms '
+      'srtDelay=${videoState.srtSubtitleDelaySeconds.toStringAsFixed(1)}s '
+      'cue=${cueKey.length > 24 ? '${cueKey.substring(0, 24)}...' : cueKey}',
     );
   }
 

@@ -1915,6 +1915,16 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
   /// 位置/边距/对齐改动后强制 libass 重新排版（mpv 需 seek 触发字幕重渲染，否则要重载视频才生效）
   void _refreshSubtitleLayout() {
     if (kIsWeb || _isDisposed) return;
+    // App 内叠层字幕（SRT/VTT/ASS）的位置是 Flutter UI 层，不占内核轨：
+    // 拖动/调整时无需 seek 内核，seek 反而造成卡顿跳帧（libmpv 实测拖不动）。
+    final extPath = getActiveExternalSubtitlePath();
+    if (extPath != null && extPath.isNotEmpty) {
+      final ext = extPath.toLowerCase();
+      if (ext.endsWith('.srt') || ext.endsWith('.vtt') ||
+          ext.endsWith('.ass') || ext.endsWith('.ssa')) {
+        return;
+      }
+    }
     try {
       final pos = _position.inMilliseconds;
       if (pos <= 0) return;

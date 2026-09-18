@@ -15,8 +15,8 @@ extension VideoPlayerStateLifecycle on VideoPlayerState {
       }
     } else if (state == AppLifecycleState.resumed) {
       // 后台因本功能自动暂停过 -> 回前台自动续播（erika/任何内核统一恢复）
-      final resumeAfterBg = _wasPlayingBeforeBackground &&
-          _status == PlayerStatus.paused;
+      final resumeAfterBg = _wasPlayingBeforeBackground;
+      // 注：erika 回前台时 _status 可能与内核脱节，不校验 paused
       _wasPlayingBeforeBackground = false;
       if (resumeAfterBg) {
         debugPrint('[VideoPlayerState] 回前台自动恢复播放');

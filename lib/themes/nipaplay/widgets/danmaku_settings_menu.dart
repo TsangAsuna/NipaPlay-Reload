@@ -865,8 +865,19 @@ class _DanmakuSettingsMenuState extends State<DanmakuSettingsMenu> {
                                   color: menuColors.controlBorder,
                                 ),
                                 onPressed: () async {
-                                  _applyDanmakuFontFromLibrary(videoState,
-                                      name, fonts);
+                                  // 再次点击已应用的字体 = 恢复默认
+                                  final applied = videoState
+                                      .danmakuFontFilePath
+                                      .trim()
+                                      .isNotEmpty &&
+                                      videoState.danmakuFontFilePath
+                                          .contains(name);
+                                  if (applied) {
+                                    await _resetDanmakuFont(videoState);
+                                  } else {
+                                    await _applyDanmakuFontFromLibrary(
+                                        videoState, name, fonts);
+                                  }
                                 },
                               ),
                           ],

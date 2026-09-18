@@ -1508,17 +1508,17 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
       final bytes = await sourceFile.readAsBytes();
       if (bytes.isEmpty) return null;
 
-      final supportDir = await path_provider.getApplicationSupportDirectory();
-      final fontsDir = Directory(p.join(supportDir.path, 'danmaku_fonts'));
+      // 与字幕字体共用一个字体库目录（subtitle_fonts）：弹幕/字幕/外挂
+      // 字幕三处设置导入的字体集中于此，各选择器都能看到同一份字体库。
+      final baseDir = await StorageService.getAppStorageDirectory();
+      final fontsDir = Directory(p.join(baseDir.path, 'subtitle_fonts'));
       await fontsDir.create(recursive: true);
 
-      final ext = p.extension(sourcePath).toLowerCase();
-      final baseName = p.basenameWithoutExtension(sourcePath);
-      final hash = sha1.convert(bytes).toString().substring(0, 12);
-      final fileName = '${baseName}_$hash$ext';
+      final fileName = p.basename(sourcePath);
       final destPath = p.join(fontsDir.path, fileName);
       final destFile = File(destPath);
-      if (!await destFile.exists()) {
+      if (!await destFile.exists() ||
+          await destFile.length() != bytes.length) {
         await destFile.writeAsBytes(bytes, flush: true);
       }
       return destPath;

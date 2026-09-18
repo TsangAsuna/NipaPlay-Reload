@@ -12,6 +12,7 @@ import 'package:nipaplay/themes/nipaplay/widgets/large_screen_mode_scope.dart';
 import 'package:nipaplay/utils/video_player_state.dart';
 import 'package:nipaplay/services/remote_subtitle_service.dart';
 import 'package:nipaplay/services/subtitle_service.dart';
+import 'package:nipaplay/utils/player_event_log.dart';
 
 class CupertinoSubtitleTracksPane extends StatefulWidget {
   const CupertinoSubtitleTracksPane({
@@ -169,7 +170,15 @@ class _CupertinoSubtitleTracksPaneState
         ),
       );
 
-      if (selected == null) return;
+      if (selected == null) {
+        logPlayerEvent('Subtitle', '远程字幕挂载取消：未选择任何字幕', level: 'WARN');
+        return;
+      }
+
+      logPlayerEvent(
+        'Subtitle',
+        '远程字幕挂载开始: ${selected.name}（${selected.sourceLabel}）',
+      );
 
       setState(() => _isLoading = true);
       final cachedPath =
@@ -215,8 +224,13 @@ class _CupertinoSubtitleTracksPaneState
       }
 
       _showMessage('已加载远程字幕：${selected.name}');
+      logPlayerEvent(
+        'Subtitle',
+        '远程字幕挂载完成: ${selected.name} -> $cachedPath',
+      );
     } catch (error) {
       _showMessage('加载远程字幕失败：$error');
+      logPlayerEvent('Subtitle', '远程字幕挂载失败: $error', level: 'ERROR');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

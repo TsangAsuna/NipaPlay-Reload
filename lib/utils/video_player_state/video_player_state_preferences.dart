@@ -1877,6 +1877,9 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
           ) ??
           VideoPlayerState.defaultSubtitleOverrideMode.index)
       .clamp(0, SubtitleStyleOverrideMode.values.length - 1)];
+    // 跨会话恢复的已选字体必须在启动时注册进引擎，否则叠层 fontFamily
+    // 静默回退默认字体（用户感知：选了字体但没生效）。
+    unawaited(ensureSelectedSubtitleFontsRegistered());
     await applySubtitleStylePreference();
     _notifyListeners();
   }

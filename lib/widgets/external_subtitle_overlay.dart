@@ -494,9 +494,12 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                 const SizedBox(height: 14),
                 Text('字号（独立于内嵌字幕）', style: TextStyle(color: Colors.white70, fontSize: 13)),
                 const SizedBox(height: 4),
-                ValueListenableBuilder<double>(
-                  valueListenable: ValueNotifier<double>(videoState.srtSubtitleScale),
-                  builder: (context, scale, _) {
+                // Consumer 而非一次性 ValueNotifier：之前每次重建都新建
+                // ValueNotifier(srtSubtitleScale)，拖动时 thumb 永不移动，
+                // 直到键盘收起触发整页重建才“跳”到当前值。
+                Consumer<VideoPlayerState>(
+                  builder: (context, vs, _) {
+                    final scale = vs.srtSubtitleScale;
                     return Slider(
                       value: scale.clamp(0.5, 3.0),
                       min: 0.5,

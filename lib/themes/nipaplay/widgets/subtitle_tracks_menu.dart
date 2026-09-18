@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:nipaplay/utils/video_player_state.dart';
+import 'package:nipaplay/utils/player_event_log.dart';
 import 'package:provider/provider.dart';
 import 'base_settings_menu.dart';
 import 'player_menu_theme.dart';
@@ -328,8 +329,19 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
 
       if (selected == null || selected.isEmpty) {
         debugPrint('[SubtitleMenu] selected empty');
+        logPlayerEvent(
+          'Subtitle',
+          '远程字幕挂载取消：未选择任何字幕（selected=${selected?.length ?? 'null'}）',
+          level: 'WARN',
+        );
         return;
       }
+
+      logPlayerEvent(
+        'Subtitle',
+        '远程字幕挂载开始: 已选 ${selected.length} 个 '
+        '(${selected.map((c) => c.name).join(', ')})',
+      );
 
       setState(() => _isLoading = true);
       var loadedCount = 0;
@@ -398,10 +410,15 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
       }
       if (mounted && context.mounted) {
         await _saveExternalSubtitles(context);
+        logPlayerEvent(
+          'Subtitle',
+          '远程字幕挂载完成: $loadedCount 个，已应用叠层/内核轨',
+        );
         BlurSnackBar.show(context, '已加载 $loadedCount 个字幕');
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
+      logPlayerEvent('Subtitle', '远程字幕挂载失败: $e', level: 'ERROR');
       if (context.mounted) {
         BlurSnackBar.show(context, '加载远程字幕失败: $e');
       }

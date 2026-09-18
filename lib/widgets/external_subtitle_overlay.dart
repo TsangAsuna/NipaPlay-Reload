@@ -165,6 +165,7 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                   }
                                 },
                                 onLongPressStart: (details) {
+                                  debugPrint('[SubtitleOverlay] 长按开始');
                                   _longPressMoved = false;
                                   _dragStartPosition = videoState.subtitlePosition;
                                   _dragStartMarginX = videoState.subtitleMarginX;
@@ -222,7 +223,10 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                     _twoFingerTimer?.cancel();
                                     _twoFingerTimer = Timer(
                                       const Duration(milliseconds: 450),
-                                      () => _showSrtSettingsPanel(context, videoState),
+                                      () {
+                                        debugPrint('[SubtitleOverlay] 双指长按触发设置面板');
+                                        _showSrtSettingsPanel(context, videoState);
+                                      },
                                     );
                                   }
                                 },
@@ -545,6 +549,7 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
       child: Listener(
         behavior: HitTestBehavior.opaque,
         onPointerDown: (event) {
+          debugPrint('[SubtitleOverlay] 拉伸柄按下 scale=' + v.subtitleScale.toString());
           startScale = v.subtitleScale;
           startX = event.position.dx;
         },

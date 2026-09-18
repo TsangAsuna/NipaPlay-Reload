@@ -338,8 +338,11 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
         final existingIndex =
             _externalSubtitles.indexWhere((s) => s['path'] == cachedPath);
         if (existingIndex >= 0) {
+          // 列表已存在（可能由自动检测加入但未真正挂载/或曾被删除标记）：
+          // 重新挂载到播放器，而不是跳过——否则「挂载选中」看起来无效果
           lastIndex = existingIndex;
           loadedCount++;
+          await _remountExternalSubtitle(existingIndex);
           continue;
         }
         final subtitleInfo = <String, dynamic>{
@@ -402,6 +405,23 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // 重新挂载列表已有条目（existingIndex 分支使用）：
+  // SRT/VTT 走叠层叠加挂载，其余走内核轨单挂，保证「挂载选中」对已有字幕也生效
+  Future<void> _remountExternalSubtitle(int index) async {
+    if (index < 0 || index >= _externalSubtitles.length) return;
+    final videoState = Provider.of<VideoPlayerState>(context, listen: false);
+    final subPath = _externalSubtitles[index]['path'] as String?;
+    if (subPath == null || subPath.isEmpty) return;
+    final ext = p.extension(subPath).toLowerCase();
+    if (ext == '.srt' || ext == '.vtt') {
+      await videoState.addExternalSubtitleToStack(subPath);
+      _externalSubtitles[index]['isActive'] = true;
+    } else {
+      _applyExternalSubtitle(videoState, subPath, index);
+    }
+    if (mounted) setState(() {});
   }
 
   // 应用外部字幕

@@ -326,7 +326,10 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
         ),
       );
 
-      if (selected == null || selected.isEmpty) return;
+      if (selected == null || selected.isEmpty) {
+        debugPrint(''[SubtitleMenu] selected empty'');
+        return;
+      }
 
       setState(() => _isLoading = true);
       var loadedCount = 0;

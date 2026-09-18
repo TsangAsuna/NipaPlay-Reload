@@ -16,9 +16,10 @@ class ExternalSubtitleOverlay extends StatefulWidget {
 
 class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
   /// 长按后显示编辑框（带锁定键）
-  bool _boxVisible = false;
+  bool _boxVisible = false;   // 长按进入编辑态才显示框；松手锁定收框
   /// 锁定后位置不可拖动，锁键隐藏；点击字幕解锁
   bool _locked = false;
+  bool _longPressMoved = false;  // 长按期间是否发生拖动（决定松手弹延迟还是锁定）
   /// 字幕背景（功能区按钮切换；默认无背景）
   bool _subtitleBgEnabled = false;
 
@@ -134,175 +135,176 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                     ),
                             );
 
-                            // SRT 拖动交互：
-                            // - 未锁定时单指拖动字幕 -> 显示编辑框并调整位置（水平 marginX / 垂直 position）
-                            // - 点锁定键 -> 锁定并消除编辑框（位置冻结）
-                            // - 锁定后点击字幕 -> 解锁并重新显示编辑框
-                            // 长按不再出框；未锁定时点击字幕不收起编辑框（避免“点空域关框”歧义）。
-                            // 手势只包文本层：命中区限定在字幕周围，避免全屏拦截暂停等触摸。
-                            // 用 Pan（单指）拖动：与音量/亮度 VerticalDrag 在竞技场竞争，
-                            // 拖动激活后置 subtitleDragActive 屏蔽音量/亮度/进度手势。
-                            // 命中区限定在字幕文本层（nPlayer subtitleContainsPoint 语义）：
-                            // 按到文本才开始拖动；框内 padding 空域不触发拖动，避免误拖。
-                            // 未锁定可拖（水平 marginX / 垂直 position，1:1 舞台映射可入黑边）；
-                            // 点锁定键 -> 锁定并消除编辑框；锁定后点字幕 -> 解锁出框。
-                            // 拖动激活期间置 subtitleDragActive 屏蔽音量/亮度/进度手势。
-                            Widget textHitArea = GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onLongPressStart: (_) {
-                                // 长按字幕 -> 出框（子层长按赢过父层长按倍速；有框时父层已被禁）
-                                if (!_boxVisible) {
-                                  setState(() {
-                                    _locked = false;
-                                    _boxVisible = true;
-                                  });
-                                  videoState.setSubtitleEditBoxVisible(true);
-                                }
-                              },
-                              onPanStart: _locked
-                                  ? null
-                                  : (details) {
-                                      videoState.setSubtitleDragActive(true);
-                                      if (!_boxVisible) {
-                                        setState(() => _boxVisible = true);
-                                        videoState.setSubtitleEditBoxVisible(true);
-                                      }
-                                    },
-                              onPanUpdate: _locked
-                                  ? null
-                                  : (details) {
-                                      final v = videoState;
-                                      v.setSubtitleMarginX(
-                                        v.subtitleMarginX + details.delta.dx,
-                                      );
-                                      // 垂直：按舞台高度 1:1 映射到 0~100（可拖到视频外黑边区）
-                                      final stageH = constraints.maxHeight.isFinite
-                                          ? constraints.maxHeight
-                                          : MediaQuery.of(context).size.height;
-                                      v.setSubtitlePosition(
-                                        (v.subtitlePosition +
-                                                details.delta.dy / stageH * 100)
-                                            .clamp(
-                                              VideoPlayerState.minSubtitlePosition,
-                                              VideoPlayerState.maxSubtitlePosition,
-                                            )
-                                            .toDouble(),
-                                      );
-                                    },
-                              onPanEnd: _locked
-                                  ? null
-                                  : (_) {
-                                      videoState.setSubtitleDragActive(false);
-                                    },
-                              onPanCancel: _locked
-                                  ? null
-                                  : () {
-                                      videoState.setSubtitleDragActive(false);
-                                    },
-                              child: textBox,
-                            );
+                            // SRT 拖动交互（nPlayer 风格，常驻框）：
+                            // - 未锁定：常驻显示编辑框；单指在框内任意处拖动位置（水平 marginX / 垂直 position，1:1 舞台映射可入黑边）
+                            // - 右下角拉伸柄：按住拖动调字幕字号（Listener 原生事件，不与拖动 Pan 抢手势）
+                            // - 长按字幕：弹出 SRT 时轴延迟调整（滑块+手动输入联动，独立于全局字幕延迟）
+                            // - 点锁定键：锁定并消除框（位置冻结）；锁定后点字幕：解锁出框
+                            // - 拖动激活期间置 subtitleDragActive 屏蔽音量/亮度/进度手势
+                            Widget makeResizeHandle(VideoPlayerState v) {
+                              double? startScale;
+                              double startX = 0;
+                              return Positioned(
+                                right: -20,
+                                bottom: -20,
+                                child: Listener(
+                                  behavior: HitTestBehavior.opaque,
+                                  onPointerDown: (event) {
+                                    startScale = v.subtitleScale;
+                                    startX = event.position.dx;
+                                  },
+                                  onPointerMove: (event) {
+                                    if (_locked) return;
+                                    final base = startScale ?? v.subtitleScale;
+                                    final deltaX = event.position.dx - startX;
+                                    final next = (base * (1 + deltaX / 240))
+                                        .clamp(0.4, 4.0)
+                                        .toDouble();
+                                    if (next != v.subtitleScale) {
+                                      v.setSubtitleScale(next);
+                                    }
+                                  },
+                                  child: Container(
+                                    width: 36,
+                                    height: 36,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0x66000000),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Icon(
+                                      Icons.open_in_full,
+                                      size: 16,
+                                      color: Color(0xFFFFFFFF),
+                                      shadows: [Shadow(blurRadius: 3, color: Colors.black)],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
 
-                            Widget positionedContent = draggable
-                                ? GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTapUp: (_) {
-                                      if (_locked) {
-                                        // 锁定时点击字幕 -> 解锁并重新显示编辑框
-                                        setState(() {
-                                          _locked = false;
-                                          _boxVisible = true;
-                                        });
-                                      }
-                                    },
-                                    child: _boxVisible
-                                        ? Transform.translate(
-                                            offset: const Offset(-24, -24),
-                                            child: Padding(
-                                              padding: const EdgeInsets.all(24),
-                                              child: Stack(
+                            Widget positionedContent;
+                            if (!draggable) {
+                              positionedContent = textBox;
+                            } else {
+                              // 长按交互（LongPress 只响应单指，三指/多指自动失效）：
+                              // - 长按按住 -> 出框进入编辑态；拖动中置 subtitleDragActive 屏蔽音量/亮度/进度手势
+                              // - 长按后拖动 -> 手指可移出字幕继续拖动（水平 marginX / 垂直 position，1:1 舞台映射可入黑边）
+                              // - 长按抬起：期间有拖动 -> 锁定位置并收框；原地长按 -> 弹出 SRT 时轴延迟调整
+                              // - 右下角拉伸柄：按住拖动调字幕字号（Listener 原生事件，不与长按抢）
+                              positionedContent = GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onLongPressStart: (details) {
+                                  _longPressMoved = false;
+                                  videoState.setSubtitleDragActive(true);
+                                  if (!_boxVisible) {
+                                    setState(() {
+                                      _boxVisible = true;
+                                    });
+                                    videoState.setSubtitleEditBoxVisible(true);
+                                  }
+                                },
+                                onLongPressMoveUpdate: (details) {
+                                  if (details.offsetFromOrigin.distance > 8) {
+                                    _longPressMoved = true;
+                                  }
+                                  final v = videoState;
+                                  v.setSubtitleMarginX(
+                                    v.subtitleMarginX +
+                                        details.offsetFromOrigin.dx,
+                                  );
+                                  final stageH =
+                                      MediaQuery.of(context).size.height;
+                                  v.setSubtitlePosition(
+                                    (v.subtitlePosition +
+                                            details.offsetFromOrigin.dy /
+                                                stageH *
+                                                100)
+                                        .clamp(
+                                          VideoPlayerState.minSubtitlePosition,
+                                          VideoPlayerState.maxSubtitlePosition,
+                                        )
+                                        .toDouble(),
+                                  );
+                                },
+                                onLongPressEnd: (_) {
+                                  videoState.setSubtitleDragActive(false);
+                                  if (_longPressMoved) {
+                                    // 拖动过 -> 松手即锁定（位置冻结，收框）
+                                    setState(() {
+                                      _locked = true;
+                                      _boxVisible = false;
+                                    });
+                                    videoState.setSubtitleEditBoxVisible(false);
+                                  } else {
+                                    // 原地长按 -> 收框并弹出延迟调整
+                                    setState(() {
+                                      _boxVisible = false;
+                                    });
+                                    videoState.setSubtitleEditBoxVisible(false);
+                                    _showSrtDelayPopup(context, videoState);
+                                  }
+                                },
+                                child: _boxVisible
+                                    ? Transform.translate(
+                                        offset: const Offset(-32, -32),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(32),
+                                          child: Stack(
+                                            clipBehavior: Clip.none,
+                                            children: [
+                                              // 文本 + 虚线边框层（覆盖整个框；命中区含 padding，不必按住字）
+                                              Stack(
                                                 clipBehavior: Clip.none,
                                                 children: [
-                                                  // 文本 + 虚线边框层（只圈住字幕文本区域；拖动只从文本触发）
-                                                  Stack(
-                                                    clipBehavior: Clip.none,
-                                                    children: [
-                                                      textHitArea,
-                                                      Positioned.fill(
-                                                        child: IgnorePointer(
-                                                          child: Container(
-                                                            decoration: BoxDecoration(
-                                                              border: Border.all(
-                                                                color: _locked
-                                                                    ? const Color(0x99FFD54F)
-                                                                    : const Color(0x99FFFFFF),
-                                                                width: 1,
-                                                              ),
-                                                            ),
+                                                  textBox,
+                                                  Positioned.fill(
+                                                    child: IgnorePointer(
+                                                      child: Container(
+                                                        decoration: BoxDecoration(
+                                                          border: Border.all(
+                                                            color: _locked
+                                                                ? const Color(0x99FFD54F)
+                                                                : const Color(0x99FFFFFF),
+                                                            width: 1,
                                                           ),
                                                         ),
                                                       ),
-                                                    ],
-                                                  ),
-                                                  // 背景切换键（字幕框左上外角）
-                                                  Positioned(
-                                                    left: 0,
-                                                    top: 0,
-                                                    child: GestureDetector(
-                                                      behavior: HitTestBehavior.opaque,
-                                                      onTap: () {
-                                                        setState(() {
-                                                          _subtitleBgEnabled =
-                                                              !_subtitleBgEnabled;
-                                                        });
-                                                      },
-                                                      child: Icon(
-                                                        _subtitleBgEnabled
-                                                            ? Icons.format_color_fill
-                                                            : Icons.format_color_reset_outlined,
-                                                        size: 22,
-                                                        color: const Color(0xFFFFFFFF),
-                                                        shadows: const [
-                                                          Shadow(
-                                                              blurRadius: 4,
-                                                              color: Colors.black),
-                                                        ],
-                                                      ),
                                                     ),
                                                   ),
-                                                  // 锁定键：未锁定显示（点它锁定）；锁定后隐藏
-                                                  if (!_locked)
-                                                    Positioned(
-                                                      right: 0,
-                                                      top: 0,
-                                                      child: GestureDetector(
-                                                        behavior: HitTestBehavior.opaque,
-                                                        onTap: () {
-                                                          // 锁定并消除编辑框（位置冻结）
-                                                          setState(() {
-                                                            _locked = true;
-                                                            _boxVisible = false;
-                                                            videoState.setSubtitleEditBoxVisible(false);
-                                                          });
-                                                        },
-                                                        child: const Icon(
-                                                          Icons.lock_outline,
-                                                          size: 22,
-                                                          color: Color(0xFFFFD54F),
-                                                          shadows: [
-                                                            Shadow(
-                                                                blurRadius: 4,
-                                                                color: Colors.black),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                    ),
                                                 ],
                                               ),
-                                            ),
-                                          )
-                                        : textHitArea,
-                                  )
-                                : textBox;
+                                              // 背景切换键（字幕框左上外角）
+                                              Positioned(
+                                                left: 0,
+                                                top: 0,
+                                                child: GestureDetector(
+                                                  behavior: HitTestBehavior.opaque,
+                                                  onTap: () {
+                                                    setState(() {
+                                                      _subtitleBgEnabled =
+                                                          !_subtitleBgEnabled;
+                                                    });
+                                                  },
+                                                  child: const Icon(
+                                                    Icons.format_color_fill,
+                                                    size: 20,
+                                                    color: Color(0xFFFFFFFF),
+                                                    shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                                                  ),
+                                                ),
+                                              ),
+                                              // 右下角拉伸手柄
+                                              makeResizeHandle(videoState),
+                                            ],
+                                          ),
+                                        ),
+                                      )
+                                    : textBox,
+                              );
+                            }
+
+
 
 
                             Widget content = Opacity(
@@ -329,6 +331,126 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
         );
       },
     );
+  }
+
+  // 长按字幕弹出 SRT 时轴延迟调整浮层（滑块 + 手动输入联动；独立于全局字幕延迟）
+  void _showSrtDelayPopup(BuildContext context, VideoPlayerState videoState) {
+    if (!videoState.currentExternalSubtitleIsSrt || _locked) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xF0101010),
+      barrierColor: Colors.black54,
+      builder: (sheetContext) {
+        final previewValue = ValueNotifier<double>(videoState.srtSubtitleDelaySeconds);
+        final delayController = TextEditingController(
+          text: _formatDelayInputText(videoState.srtSubtitleDelaySeconds),
+        );
+        void applyValue(double value) {
+          videoState.setSrtSubtitleDelaySeconds(value);
+          previewValue.value = value;
+          delayController.text = _formatDelayInputText(value);
+        }
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'SRT 时轴偏移（独立于全局字幕延迟）',
+                  style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '正值延后，负值提前',
+                  style: TextStyle(color: Colors.white60, fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                ValueListenableBuilder<double>(
+                  valueListenable: previewValue,
+                  builder: (context, value, _) {
+                    return Slider(
+                      value: value.clamp(
+                        videoState.subtitleDelaySliderMinSeconds,
+                        videoState.subtitleDelaySliderMaxSeconds,
+                      ),
+                      min: videoState.subtitleDelaySliderMinSeconds,
+                      max: videoState.subtitleDelaySliderMaxSeconds,
+                      divisions: videoState.subtitleDelaySliderDivisions,
+                      label: _formatDelayDisplayText(value),
+                      onChanged: applyValue,
+                    );
+                  },
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: delayController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            signed: true, decimal: true),
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: '例如 -12.5 或 8',
+                          hintStyle: TextStyle(color: Colors.white38, fontSize: 14),
+                          labelText: '秒',
+                          labelStyle: TextStyle(color: Colors.white60, fontSize: 12),
+                          enabledBorder: OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.white24),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.amber),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                        ),
+                        onChanged: (text) {
+                          final parsed = double.tryParse(text.trim());
+                          if (parsed != null) {
+                            applyValue(parsed);
+                          }
+                        },
+                        onSubmitted: (text) {
+                          final parsed = double.tryParse(text.trim());
+                          if (parsed != null) {
+                            applyValue(parsed);
+                            FocusScope.of(sheetContext).unfocus();
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    IconButton(
+                      onPressed: () => FocusScope.of(sheetContext).unfocus(),
+                      icon: const Icon(Icons.check, color: Colors.amber),
+                      tooltip: '完成',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _formatDelayInputText(double value) {
+    if (value.abs() < 0.0001) return '0';
+    var text = value.toStringAsFixed(3);
+    if (text.contains('.')) {
+      text = text.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+    }
+    return text;
+  }
+
+  String _formatDelayDisplayText(double value) {
+    final prefix = value > 0 ? '+' : '';
+    return '$prefix${value.toStringAsFixed(1)}s';
   }
 
   double _resolveHorizontalAlignment(SubtitleAlignX alignX) {

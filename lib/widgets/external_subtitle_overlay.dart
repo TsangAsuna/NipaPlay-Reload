@@ -169,9 +169,16 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                             v.setSubtitleMarginX(
                                               v.subtitleMarginX + details.delta.dx,
                                             );
+                                            // 垂直：按舞台高度 1:1 映射到 0~100（可拖到视频外黑边区）
+                                            final stageH =
+                                                constraints.maxHeight.isFinite
+                                                    ? constraints.maxHeight
+                                                    : MediaQuery.of(context)
+                                                        .size
+                                                        .height;
                                             v.setSubtitlePosition(
                                               (v.subtitlePosition +
-                                                      details.delta.dy / 4)
+                                                      details.delta.dy / stageH * 100)
                                                   .clamp(
                                                     VideoPlayerState.minSubtitlePosition,
                                                     VideoPlayerState.maxSubtitlePosition,

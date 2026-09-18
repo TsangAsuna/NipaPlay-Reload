@@ -1394,7 +1394,7 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
   }
 
   // SRT 字幕拖动激活标志：拖动期间屏蔽音量/亮度/进度手势，避免误触
-  bool _subtitleDragActive = false;
+  // （字段声明在 VideoPlayerState 主类，见 video_player_state.dart）
   bool get subtitleDragActive => _subtitleDragActive;
 
   void setSubtitleDragActive(bool active) {

@@ -294,6 +294,8 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   PlayerStatus _status = PlayerStatus.idle;
   List<String> _statusMessages = []; // 修改为列表存储多个状态消息
   bool _isStartupMessageFlowActive = false;
+  // SRT 字幕拖动激活标志：拖动期间屏蔽音量/亮度/进度手势，避免误触
+  bool _subtitleDragActive = false;
   bool _showControls = true;
   bool _showRightMenu = false; // 控制右侧菜单显示状态
   final String _desktopHoverSettingsMenuEnabledKey =

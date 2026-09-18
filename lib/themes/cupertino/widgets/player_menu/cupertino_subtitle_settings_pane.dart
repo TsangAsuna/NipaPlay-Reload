@@ -299,6 +299,9 @@ class _CupertinoSubtitleSettingsPaneState
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<SubtitleSettingsPaneController>();
+    // 监听 VideoPlayerState：点选字体/颜色后芯片与输入框立即反映最新值
+    // （此前只 watch PaneController，重开面板前看不到变化）。
+    context.watch<VideoPlayerState>();
     final videoState = controller.videoState;
     _syncSubtitleDelayController(videoState);
     _syncController(

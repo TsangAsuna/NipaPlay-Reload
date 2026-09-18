@@ -97,16 +97,24 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                 : FontStyle.normal,
             color: videoState.subtitleColor,
             height: 1.28,
-            fontFamily: videoState.subtitleFontName.isNotEmpty
-                ? videoState.subtitleFontName.split(',').first.trim()
+            // 字体仅在 样式覆盖=自定义样式 时应用（用户指定：保持原样/
+            // 仅缩放/自动模式下外挂字幕不套用所选字体，使用默认字体）。
+            fontFamily: videoState.subtitleOverrideMode ==
+                    SubtitleStyleOverrideMode.force
+                ? (videoState.subtitleFontName.isNotEmpty
+                    ? videoState.subtitleFontName.split(',').first.trim()
+                    : null)
                 : null,
-            fontFamilyFallback: videoState.subtitleFontName.contains(',')
-                ? videoState.subtitleFontName
-                    .split(',')
-                    .skip(1)
-                    .map((e) => e.trim())
-                    .where((e) => e.isNotEmpty)
-                    .toList()
+            fontFamilyFallback: videoState.subtitleOverrideMode ==
+                    SubtitleStyleOverrideMode.force
+                ? (videoState.subtitleFontName.contains(',')
+                    ? videoState.subtitleFontName
+                        .split(',')
+                        .skip(1)
+                        .map((e) => e.trim())
+                        .where((e) => e.isNotEmpty)
+                        .toList()
+                    : null)
                 : null,
             shadows: videoState.subtitleShadowOffset > 0
                 ? [

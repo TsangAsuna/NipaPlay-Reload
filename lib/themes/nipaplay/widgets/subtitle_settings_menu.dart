@@ -435,7 +435,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
 
     return _buildOptionButtonsSection(
       title: '样式覆盖',
-      description: 'ASS 字幕样式覆盖策略',
+      description: '自定义样式：外挂字幕应用下方所选字体；内嵌字幕按此策略覆盖 ASS 自带样式',
       items: items,
       onSelected: videoState.setSubtitleOverrideMode,
     );

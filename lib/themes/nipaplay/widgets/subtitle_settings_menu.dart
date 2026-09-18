@@ -192,9 +192,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
   }
 
   double _currentSubtitleDelayDisplayValue(VideoPlayerState videoState) {
-    if (videoState.currentExternalSubtitleIsSrt) {
-      return _subtitleDelayPreviewValue ?? videoState.srtSubtitleDelaySeconds;
-    }
+    // 全局字幕延迟（对 MKV 内嵌/ASS 生效）；SRT 独立偏移走 _srtDelayController 区块
     return _subtitleDelayPreviewValue ?? videoState.subtitleDelaySeconds;
   }
 
@@ -212,12 +210,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
 
   void _syncSubtitleDelayController(VideoPlayerState videoState) {
     if (_subtitleDelayFocus.hasFocus || _subtitleDelayDirty) return;
-    final value =
-        _formatDelayInput(
-          videoState.currentExternalSubtitleIsSrt
-              ? videoState.srtSubtitleDelaySeconds
-              : _currentSubtitleDelayDisplayValue(videoState),
-        );
+    final value = _formatDelayInput(_currentSubtitleDelayDisplayValue(videoState));
     if (_subtitleDelayController.text != value) {
       _subtitleDelayController.text = value;
     }
@@ -283,11 +276,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
       return;
     }
 
-    if (videoState.currentExternalSubtitleIsSrt) {
-      await videoState.setSrtSubtitleDelaySeconds(value);
-    } else {
-      await videoState.setSubtitleDelaySeconds(value);
-    }
+    await videoState.setSubtitleDelaySeconds(value);
     if (!mounted) return;
     FocusScope.of(context).unfocus();
     setState(() {
@@ -315,9 +304,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
     setState(() {
       _subtitleDelayDirty = false;
       _subtitleDelayError = null;
-      _subtitleDelayPreviewValue = videoState.currentExternalSubtitleIsSrt
-          ? videoState.srtSubtitleDelaySeconds
-          : videoState.subtitleDelaySeconds;
+      _subtitleDelayPreviewValue = videoState.subtitleDelaySeconds;
     });
   }
 
@@ -331,11 +318,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
     VideoPlayerState videoState,
     double value,
   ) async {
-    if (videoState.currentExternalSubtitleIsSrt) {
-      await videoState.setSrtSubtitleDelaySeconds(value);
-    } else {
-      await videoState.setSubtitleDelaySeconds(value);
-    }
+    await videoState.setSubtitleDelaySeconds(value);
     if (!mounted) return;
     setState(() {
       _subtitleDelayDirty = false;
@@ -473,9 +456,7 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
             onChanged: _handleSubtitleDelaySliderChanged,
             onChangeEnd: (value) =>
                 _handleSubtitleDelaySliderEnd(videoState, value),
-            label: videoState.currentExternalSubtitleIsSrt
-                ? 'SRT 时轴偏移'
-                : '字幕延迟',
+            label: '字幕延迟',
             displayTextBuilder: _formatDelayDisplay,
             min: videoState.subtitleDelaySliderMinSeconds,
             max: videoState.subtitleDelaySliderMaxSeconds,
@@ -552,6 +533,20 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
           const SettingsHintText('滑块用于快速微调，正值延后，负值提前'),
           SettingsHintText(_buildSubtitleDelayLimitHint(videoState)),
           if (videoState.currentExternalSubtitleIsSrt) ...[
+          const SizedBox(height: 16),
+          SettingsSlider(
+            value: videoState.srtSubtitleDelaySeconds,
+            onChangeStart: (value) =>
+                _handleSubtitleDelaySliderStart(videoState, value),
+            onChanged: _handleSubtitleDelaySliderChanged,
+            onChangeEnd: (value) =>
+                _handleSrtDelaySliderEnd(videoState, value),
+            label: 'SRT 时轴偏移',
+            displayTextBuilder: _formatDelayDisplay,
+            min: videoState.subtitleDelaySliderMinSeconds,
+            max: videoState.subtitleDelaySliderMaxSeconds,
+            step: VideoPlayerState.subtitleDelayStep,
+          ),
             const SizedBox(height: 16),
             Text(
               'SRT 时轴偏移（不影响内嵌/ASS）',
@@ -632,6 +627,15 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
         ],
       ),
     );
+  }
+
+  Future<void> _handleSrtDelaySliderEnd(
+    VideoPlayerState videoState,
+    double value,
+  ) async {
+    await videoState.setSrtSubtitleDelaySeconds(value);
+    if (!mounted) return;
+    _subtitleDelayPreviewValue = null;
   }
 
   Future<void> _applySrtCustomDelay(VideoPlayerState videoState) async {

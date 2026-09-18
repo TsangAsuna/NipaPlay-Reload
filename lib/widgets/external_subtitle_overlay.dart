@@ -51,7 +51,8 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
         }
 
         // SRT 叠层可拖动/缩放调整（水平 margin、垂直 position）；ASS 保持只读
-        final draggable = isSrt;
+        // 所有 App 叠层外挂字幕（SRT/VTT/ASS/SSA）都可长按拖动位置
+        final draggable = videoState.shouldRenderCurrentExternalSubtitleInApp();
         return IgnorePointer(
           ignoring: !draggable,
           child: LayoutBuilder(
@@ -508,18 +509,9 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
     );
   }
 
-  Future<List<String>> _listSubtitleFontNames(VideoPlayerState videoState) async {
-    final dir = videoState.subtitleFontDir;
-    if (dir.isEmpty) return const [];
-    final d = Directory(dir);
-    if (!await d.exists()) return const [];
-    final files = await d
-        .list()
-        .where((e) => e is File)
-        .map((e) => e.path.split('/').last.split('\\').last)
-        .where((name) => name.isNotEmpty)
-        .toList();
-    return files..sort();
+  // 与字幕设置菜单共用同一字体列表（含字体库 subtitle_fonts + 本地 fonts）
+  Future<List<String>> _listSubtitleFontNames(VideoPlayerState videoState) {
+    return videoState.listSubtitleFonts();
   }
 
 

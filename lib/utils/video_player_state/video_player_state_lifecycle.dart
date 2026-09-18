@@ -19,10 +19,10 @@ extension VideoPlayerStateLifecycle on VideoPlayerState {
       // iOS 退后台系统/内核可能暂停播放（erika 时间停但字幕继续走 = 内核实际已暂停）：
       // 回前台只要视频存在且在播放位置就恢复。用户主动暂停的情况由 UI 层
       // 在暂停时清除 _wasPlayingBeforeBackground 兜底（暂无，play 幂等可接受）。
-      if (_status == PlayerStatus.playing ||
-          _wasPlayingBeforeBackground ||
-          (hasVideo && _position.inMilliseconds > 0 && _status != PlayerStatus.paused)) {
-        debugPrint('[VideoPlayerState] 回前台自动恢复播放');
+      // erika/libmpv 在 iOS 退后台时可能被系统暂停（无论是否开启自动暂停），
+      // 回前台无条件恢复（play 幂等；用户主动暂停会在 UI 层清标志，暂无副作用）。
+      if (hasVideo) {
+        debugPrint('[VideoPlayerState] 回前台恢复播放');
         play();
       }
       // 回前台强制刷新一帧：iOS 切后台后渲染可能没跟上（画面灰/缺失），

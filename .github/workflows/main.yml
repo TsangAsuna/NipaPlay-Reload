@@ -22,10 +22,10 @@ permissions:
   contents: write
   pull-requests: read
 
-# If previous workflow is still running, we push again, we will cancel the previous workflow
+# 允许同一分支多个构建并行，互不取消（手动触发多次时可同时出包）
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   Gatekeeper:

@@ -1874,7 +1874,6 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
           ) ??
           VideoPlayerState.defaultSubtitleOverrideMode.index)
       .clamp(0, SubtitleStyleOverrideMode.values.length - 1)];
-    _subtitleDragFingers = (prefs.getInt(_subtitleDragFingersKey) ?? 2).clamp(1, 2);
     await applySubtitleStylePreference();
     _notifyListeners();
   }
@@ -1888,16 +1887,6 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_subtitleScaleKey, resolved);
     await applySubtitleStylePreference();
-    _notifyListeners();
-  }
-
-  /// 设置字幕拖动手势使用的手指数量（1/2），nPlayer 风格
-  Future<void> setSubtitleDragFingers(int fingers) async {
-    final clamped = fingers == 1 ? 1 : 2;
-    if (_subtitleDragFingers == clamped) return;
-    _subtitleDragFingers = clamped;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_subtitleDragFingersKey, clamped);
     _notifyListeners();
   }
 
@@ -2256,7 +2245,6 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     _subtitleFontName = '';
     _subtitleFontDir = '';
     _subtitleOverrideMode = VideoPlayerState.defaultSubtitleOverrideMode;
-    _subtitleDragFingers = 2;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_subtitleScaleKey, _subtitleScale);
     await prefs.setDouble(_subtitleDelayKey, _subtitleDelaySeconds);

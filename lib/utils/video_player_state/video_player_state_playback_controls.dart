@@ -1393,9 +1393,20 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
     _notifyListeners();
   }
 
+  // SRT 字幕拖动激活标志：拖动期间屏蔽音量/亮度/进度手势，避免误触
+  bool _subtitleDragActive = false;
+  bool get subtitleDragActive => _subtitleDragActive;
+
+  void setSubtitleDragActive(bool active) {
+    if (_subtitleDragActive == active) return;
+    _subtitleDragActive = active;
+    _notifyListeners();
+  }
+
   // Volume Drag Methods
   void startVolumeDrag() {
     if (!globals.isMobilePlatform) return;
+    if (_subtitleDragActive) return; // 字幕拖动中不响应音量手势
     _initialDragVolume = _currentVolume;
     _showVolumeIndicator(); // We'll define this next
     debugPrint("Volume drag started. Initial drag volume: $_initialDragVolume");

@@ -593,7 +593,6 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   final String _subtitleFontDirKey = 'subtitle_font_dir';
   final String _subtitleOverrideModeKey = 'subtitle_override_mode';
     final String _srtSubtitleDelayKey = 'srt_subtitle_delay';
-    final String _subtitleDragFingersKey = 'subtitle_drag_fingers';
     double _subtitleScale = defaultSubtitleScale;
   double _subtitleDelaySeconds = defaultSubtitleDelaySeconds;
   double _srtSubtitleDelaySeconds = defaultSubtitleDelaySeconds;
@@ -613,8 +612,6 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   String _subtitleFontName = '';
   String _subtitleFontDir = '';
   SubtitleStyleOverrideMode _subtitleOverrideMode = defaultSubtitleOverrideMode;
-  /// 字幕拖动手势使用的手指数量（1=单指，2=双指；默认双指，nPlayer 风格）
-  int _subtitleDragFingers = 2;
 
   // 弹幕轨道显示区域设置
   double _danmakuDisplayArea =
@@ -1467,7 +1464,6 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   String get subtitleFontName => _subtitleFontName;
   String get subtitleFontDir => _subtitleFontDir;
   SubtitleStyleOverrideMode get subtitleOverrideMode => _subtitleOverrideMode;
-  int get subtitleDragFingers => _subtitleDragFingers;
   double get danmakuDisplayArea => _danmakuDisplayArea;
   double get danmakuSpeedMultiplier => _danmakuSpeedMultiplier;
   double get danmakuDfmPlusTrackGap => _danmakuDfmPlusTrackGap;

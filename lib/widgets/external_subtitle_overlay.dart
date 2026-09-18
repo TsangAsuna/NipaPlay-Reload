@@ -136,10 +136,12 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
 
                             // SRT 拖动交互（nPlayer 式）：
                             // - 长按字幕 -> 显示编辑框 + 锁定键
-                            // - 未锁定时可自由拖动（水平 marginX / 垂直 position）
+                            // - 未锁定时单指拖动（水平 marginX / 垂直 position）
                             // - 点锁定键 -> 锁定（位置冻结，锁键隐藏）
                             // - 锁定后点击字幕 -> 解锁并重新显示锁键
                             // 手势只包文本层：命中区限定在字幕周围，避免全屏拦截暂停等触摸。
+                            // 用 Pan（单指）拖动：与音量/亮度 VerticalDrag 在竞技场竞争，
+                            // 拖动激活后置 subtitleDragActive 屏蔽音量/亮度/进度手势。
                             Widget positionedContent = draggable
                                 ? GestureDetector(
                                     behavior: HitTestBehavior.opaque,
@@ -162,32 +164,24 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                         }
                                       }
                                     },
-                                    onScaleStart: _locked
+                                    onPanStart: _locked
                                         ? null
                                         : (details) {
-                                            // 超过设置的最大手指数（1=单指 2=双指）不响应拖动
-                                            if (details.pointerCount >
-                                                videoState.subtitleDragFingers) {
-                                              return;
-                                            }
+                                            videoState.setSubtitleDragActive(true);
                                             if (!_boxVisible) {
                                               setState(() => _boxVisible = true);
                                             }
                                           },
-                                    onScaleUpdate: _locked
+                                    onPanUpdate: _locked
                                         ? null
                                         : (details) {
                                             final v = videoState;
-                                            if (details.pointerCount >
-                                                v.subtitleDragFingers) {
-                                              return;
-                                            }
                                             v.setSubtitleMarginX(
-                                              v.subtitleMarginX + details.focalPointDelta.dx,
+                                              v.subtitleMarginX + details.delta.dx,
                                             );
                                             v.setSubtitlePosition(
                                               (v.subtitlePosition +
-                                                      details.focalPointDelta.dy / 4)
+                                                      details.delta.dy / 4)
                                                   .clamp(
                                                     VideoPlayerState.minSubtitlePosition,
                                                     VideoPlayerState.maxSubtitlePosition,
@@ -195,11 +189,21 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                                   .toDouble(),
                                             );
                                           },
+                                    onPanEnd: _locked
+                                        ? null
+                                        : (_) {
+                                            videoState.setSubtitleDragActive(false);
+                                          },
+                                    onPanCancel: _locked
+                                        ? null
+                                        : () {
+                                            videoState.setSubtitleDragActive(false);
+                                          },
                                     child: _boxVisible
                                         ? Transform.translate(
-                                            offset: const Offset(-18, -18),
+                                            offset: const Offset(-24, -24),
                                             child: Padding(
-                                              padding: const EdgeInsets.all(18),
+                                              padding: const EdgeInsets.all(24),
                                               child: Stack(
                                                 clipBehavior: Clip.none,
                                                 children: [

@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:nipaplay/utils/video_player_state.dart';
 import 'package:provider/provider.dart';
@@ -16,12 +19,15 @@ class ExternalSubtitleOverlay extends StatefulWidget {
 
 class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
   /// 长按后显示编辑框（带锁定键）
-  bool _boxVisible = false;   // 长按进入编辑态才显示框；松手锁定收框
+  bool _boxVisible = true;   // 常驻框：默认显示；锁定后消失，再次长按出现
   /// 锁定后位置不可拖动，锁键隐藏；点击字幕解锁
   bool _locked = false;
-  bool _longPressMoved = false;  // 长按期间是否发生拖动（决定松手弹延迟还是锁定）
+  bool _longPressMoved = false;  // 长按期间是否发生拖动
+  double _dragStartPosition = 100.0;  // 长按起点字幕垂直位置
+  double _dragStartMarginX = 0.0;    // 长按起点水平边距
   /// 字幕背景（功能区按钮切换；默认无背景）
   bool _subtitleBgEnabled = false;
+  Timer? _twoFingerTimer;  // 双指长按识别定时器
 
   @override
   Widget build(BuildContext context) {
@@ -196,6 +202,8 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                 behavior: HitTestBehavior.opaque,
                                 onLongPressStart: (details) {
                                   _longPressMoved = false;
+                                  _dragStartPosition = videoState.subtitlePosition;
+                                  _dragStartMarginX = videoState.subtitleMarginX;
                                   videoState.setSubtitleDragActive(true);
                                   if (!_boxVisible) {
                                     setState(() {
@@ -208,15 +216,18 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                   if (details.offsetFromOrigin.distance > 8) {
                                     _longPressMoved = true;
                                   }
+                                  if (!_longPressMoved) return;
                                   final v = videoState;
+                                  // 用起点+累计偏移，避免 position+offset 反复叠加导致拖不到底
                                   v.setSubtitleMarginX(
-                                    v.subtitleMarginX +
-                                        details.offsetFromOrigin.dx,
+                                    (_dragStartMarginX +
+                                            details.offsetFromOrigin.dx)
+                                        .clamp(-200.0, 200.0),
                                   );
                                   final stageH =
                                       MediaQuery.of(context).size.height;
                                   v.setSubtitlePosition(
-                                    (v.subtitlePosition +
+                                    (_dragStartPosition +
                                             details.offsetFromOrigin.dy /
                                                 stageH *
                                                 100)
@@ -237,13 +248,27 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                     });
                                     videoState.setSubtitleEditBoxVisible(false);
                                   } else {
-                                    // 原地长按 -> 收框并弹出延迟调整
-                                    setState(() {
-                                      _boxVisible = false;
-                                    });
-                                    videoState.setSubtitleEditBoxVisible(false);
-                                    _showSrtDelayPopup(context, videoState);
+                                    // 单指原地长按 -> 保持框，不做其它（双指长按走 onScaleStart 弹设置）
+                                    videoState.setSubtitleEditBoxVisible(true);
                                   }
+                                },
+                                // 双指长按：弹 SRT 设置面板（延迟滑块+输入联动、字体、颜色）
+                                onScaleStart: (details) {
+                                  if (details.pointerCount >= 2) {
+                                    _twoFingerTimer?.cancel();
+                                    _twoFingerTimer = Timer(
+                                      const Duration(milliseconds: 450),
+                                      () => _showSrtSettingsPanel(context, videoState),
+                                    );
+                                  }
+                                },
+                                onScaleUpdate: (_) {
+                                  _twoFingerTimer?.cancel();
+                                  _twoFingerTimer = null;
+                                },
+                                onScaleEnd: (_) {
+                                  _twoFingerTimer?.cancel();
+                                  _twoFingerTimer = null;
                                 },
                                 child: _boxVisible
                                     ? Transform.translate(
@@ -334,12 +359,14 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
   }
 
   // 长按字幕弹出 SRT 时轴延迟调整浮层（滑块 + 手动输入联动；独立于全局字幕延迟）
-  void _showSrtDelayPopup(BuildContext context, VideoPlayerState videoState) {
-    if (!videoState.currentExternalSubtitleIsSrt || _locked) return;
+  // 双指长按弹出 SRT 设置面板：延迟滑块+手动输入联动（独立于全局）、字体选择、颜色调色板
+  void _showSrtSettingsPanel(BuildContext context, VideoPlayerState videoState) {
+    if (!videoState.currentExternalSubtitleIsSrt) return;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xF0101010),
       barrierColor: Colors.black54,
+      isScrollControlled: true,
       builder: (sheetContext) {
         final previewValue = ValueNotifier<double>(videoState.srtSubtitleDelaySeconds);
         final delayController = TextEditingController(
@@ -350,23 +377,27 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
           previewValue.value = value;
           delayController.text = _formatDelayInputText(value);
         }
+        // 常用字幕颜色调色板
+        const palette = <Color>[
+          Colors.white, Colors.black, Colors.yellow, Colors.cyan,
+          Color(0xFFFFD54F), Color(0xFFFF8A65), Color(0xFFAED581),
+          Color(0xFF81D4FA), Color(0xFFF48FB1), Color(0xFFB39DDB),
+        ];
         return SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'SRT 时轴偏移（独立于全局字幕延迟）',
+                  'SRT 字幕设置（独立于全局）',
                   style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '正值延后，负值提前',
-                  style: TextStyle(color: Colors.white60, fontSize: 12),
-                ),
                 const SizedBox(height: 12),
+                Text('时轴偏移（正值延后，负值提前）',
+                    style: TextStyle(color: Colors.white60, fontSize: 12)),
+                const SizedBox(height: 4),
                 ValueListenableBuilder<double>(
                   valueListenable: previewValue,
                   builder: (context, value, _) {
@@ -410,16 +441,12 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                         ),
                         onChanged: (text) {
                           final parsed = double.tryParse(text.trim());
-                          if (parsed != null) {
-                            applyValue(parsed);
-                          }
+                          if (parsed != null) applyValue(parsed);
                         },
                         onSubmitted: (text) {
                           final parsed = double.tryParse(text.trim());
-                          if (parsed != null) {
-                            applyValue(parsed);
-                            FocusScope.of(sheetContext).unfocus();
-                          }
+                          if (parsed != null) applyValue(parsed);
+                          FocusScope.of(sheetContext).unfocus();
                         },
                       ),
                     ),
@@ -431,6 +458,59 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 14),
+                Text('字体', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const SizedBox(height: 6),
+                FutureBuilder<List<String>>(
+                  future: _listSubtitleFontNames(videoState),
+                  builder: (context, snapshot) {
+                    final fonts = snapshot.data ?? <String>[];
+                    final current = videoState.subtitleFontName;
+                    return DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: fonts.contains(current) ? current : null,
+                        dropdownColor: const Color(0xFF202020),
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        isExpanded: true,
+                        hint: const Text('默认字体', style: TextStyle(color: Colors.white54)),
+                        items: [
+                          for (final f in fonts)
+                            DropdownMenuItem(value: f, child: Text(f, overflow: TextOverflow.ellipsis)),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) videoState.setSubtitleFontName(value);
+                        },
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 14),
+                Text('文字颜色', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (final color in palette)
+                      GestureDetector(
+                        onTap: () => videoState.setSubtitleColor(color),
+                        child: Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: videoState.subtitleColor.toARGB32() == color.toARGB32()
+                                  ? Colors.amber
+                                  : Colors.white24,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -438,6 +518,21 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
       },
     );
   }
+
+  Future<List<String>> _listSubtitleFontNames(VideoPlayerState videoState) async {
+    final dir = videoState.subtitleFontDir;
+    if (dir.isEmpty) return const [];
+    final d = Directory(dir);
+    if (!await d.exists()) return const [];
+    final files = await d
+        .list()
+        .where((e) => e is File)
+        .map((e) => e.path.split('/').last.split('\\').last)
+        .where((name) => name.isNotEmpty)
+        .toList();
+    return files..sort();
+  }
+
 
   String _formatDelayInputText(double value) {
     if (value.abs() < 0.0001) return '0';

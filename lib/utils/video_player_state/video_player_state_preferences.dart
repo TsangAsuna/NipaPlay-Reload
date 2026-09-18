@@ -2339,6 +2339,8 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
 
   Future<void> applySubtitleStylePreference() async {
     if (kIsWeb || _isDisposed) return;
+    // 叠层字幕(SRT/VTT/ASS)样式在 Flutter UI 层，不设内核属性（sub-margin-x 限制0~300，拖拽负值报错/卡热切换）
+    if (shouldRenderCurrentExternalSubtitleInApp()) return;
     try {
       final playerKernelName = player.getPlayerKernelName();
       if (playerKernelName == 'Erika') {

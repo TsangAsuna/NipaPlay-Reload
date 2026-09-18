@@ -327,7 +327,7 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
       );
 
       if (selected == null || selected.isEmpty) {
-        debugPrint(''[SubtitleMenu] selected empty'');
+        debugPrint('[SubtitleMenu] selected empty');
         return;
       }
 

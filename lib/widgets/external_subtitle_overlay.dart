@@ -370,7 +370,27 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                 ],
                               );
 
-                              positionedContent = _boxVisible ? boxLayer : dragArea;
+                              if (_boxVisible) {
+                                positionedContent = boxLayer;
+                              } else {
+                                // 隐藏态：不拦截任何播放器手势。此前的
+                                // dragArea 即使框隐藏也以 opaque 抢占手势，
+                                // 长按倍速/拖动 seek 全被吞掉（用户实测长按
+                                // 快进失效）。改为仅单击字幕文本重新唤出
+                                // 编辑框；要拖动位置先单击出框再拖。
+                                positionedContent = GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    debugPrint('[SubtitleOverlay] 单击唤出编辑框');
+                                    setState(() {
+                                      _locked = false;
+                                      _boxVisible = true;
+                                    });
+                                    videoState.setSubtitleEditBoxVisible(true);
+                                  },
+                                  child: textBox,
+                                );
+                              }
                             }
 
 

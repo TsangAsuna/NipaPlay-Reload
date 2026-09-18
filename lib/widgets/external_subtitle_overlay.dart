@@ -151,8 +151,8 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                               double? startScale;
                               double startX = 0;
                               return Positioned(
-                                right: -20,
-                                bottom: -20,
+                                right: -52,
+                                bottom: -52,
                                 child: Listener(
                                   behavior: HitTestBehavior.opaque,
                                   onPointerDown: (event) {
@@ -271,59 +271,70 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                   _twoFingerTimer = null;
                                 },
                                 child: _boxVisible
-                                    ? Transform.translate(
-                                        offset: const Offset(-32, -32),
-                                        child: Padding(
-                                          padding: const EdgeInsets.all(32),
-                                          child: Stack(
-                                            clipBehavior: Clip.none,
-                                            children: [
-                                              // 文本 + 虚线边框层（覆盖整个框；命中区含 padding，不必按住字）
-                                              Stack(
-                                                clipBehavior: Clip.none,
-                                                children: [
-                                                  textBox,
-                                                  Positioned.fill(
-                                                    child: IgnorePointer(
-                                                      child: Container(
-                                                        decoration: BoxDecoration(
-                                                          border: Border.all(
-                                                            color: _locked
-                                                                ? const Color(0x99FFD54F)
-                                                                : const Color(0x99FFFFFF),
-                                                            width: 1,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              // 背景切换键（字幕框左上外角）
-                                              Positioned(
-                                                left: 0,
-                                                top: 0,
-                                                child: GestureDetector(
-                                                  behavior: HitTestBehavior.opaque,
-                                                  onTap: () {
-                                                    setState(() {
-                                                      _subtitleBgEnabled =
-                                                          !_subtitleBgEnabled;
-                                                    });
-                                                  },
-                                                  child: const Icon(
-                                                    Icons.format_color_fill,
-                                                    size: 20,
-                                                    color: Color(0xFFFFFFFF),
-                                                    shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                                    // 框用 Positioned 外扩绘制，不参与布局尺寸 -> Stack 尺寸恒等于 textBox，
+                                    // Align 对齐不因出框而位移（不会“跳一下”）。
+                                    ? Stack(
+                                        clipBehavior: Clip.none,
+                                        children: [
+                                          textBox,
+                                          // 外扩虚线边框（-32 外扩，不撑尺寸）
+                                          Positioned(
+                                            left: -32,
+                                            top: -32,
+                                            right: -32,
+                                            bottom: -32,
+                                            child: IgnorePointer(
+                                              child: Container(
+                                                decoration: BoxDecoration(
+                                                  border: Border.all(
+                                                    color: _locked
+                                                        ? const Color(0x99FFD54F)
+                                                        : const Color(0x99FFFFFF),
+                                                    width: 1,
                                                   ),
                                                 ),
                                               ),
-                                              // 右下角拉伸手柄
-                                              makeResizeHandle(videoState),
-                                            ],
+                                            ),
                                           ),
-                                        ),
+                                          // 设置按钮（左上外角，双保险：双指长按 + 点击都弹设置面板）
+                                          Positioned(
+                                            left: -42,
+                                            top: -42,
+                                            child: GestureDetector(
+                                              behavior: HitTestBehavior.opaque,
+                                              onTap: () =>
+                                                  _showSrtSettingsPanel(context, videoState),
+                                              child: const Icon(
+                                                Icons.tune,
+                                                size: 18,
+                                                color: Color(0xFFFFFFFF),
+                                                shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                                              ),
+                                            ),
+                                          ),
+                                          // 背景切换键（字幕框右上外角）
+                                          Positioned(
+                                            right: -42,
+                                            top: -42,
+                                            child: GestureDetector(
+                                              behavior: HitTestBehavior.opaque,
+                                              onTap: () {
+                                                setState(() {
+                                                  _subtitleBgEnabled =
+                                                      !_subtitleBgEnabled;
+                                                });
+                                              },
+                                              child: const Icon(
+                                                Icons.format_color_fill,
+                                                size: 18,
+                                                color: Color(0xFFFFFFFF),
+                                                shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                                              ),
+                                            ),
+                                          ),
+                                          // 右下角拉伸手柄
+                                          makeResizeHandle(videoState),
+                                        ],
                                       )
                                     : textBox,
                               );

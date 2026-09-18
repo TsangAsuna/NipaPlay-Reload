@@ -590,9 +590,10 @@ class SubtitleManager extends ChangeNotifier {
     // SRT/VTT 无特效，全平台 App 内叠层渲染（与内核无关）：
     // 不占内核字幕轨 -> 可与 mkv 内嵌轨共存、可热切换、可拖动
     if (extension == '.srt' || extension == '.vtt') return true;
-    // ASS/SSA 含样式特效，Windows 内核无法渲染时走叠层，其余交给内核
-    return Platform.isWindows &&
-        (extension == '.ass' || extension == '.ssa');
+    // ASS/SSA：App 叠层解析器已支持文本提取（忽略特效样式，纯文本渲染）。
+    // iOS/Android 内核（尤其 Erika）对外挂 ASS 轨支持差，挂载后不显示 ->
+    // 全平台走叠层，保证弹弹play 等远程 ASS 字幕可显示。
+    return extension == '.ass' || extension == '.ssa';
   }
 
   void _activateAppRenderedExternalSubtitle(String path) {

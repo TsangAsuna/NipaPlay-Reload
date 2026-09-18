@@ -582,8 +582,15 @@ class _CupertinoSubtitleSettingsPaneState
               if (fonts.isEmpty) {
                 return const SizedBox.shrink();
               }
+              // 多选感知：高亮按逗号分隔列表判断，点击为切换（与其他
+              // 字幕面板的多选语义一致），不再是单值覆盖。
+              final selectedFonts = videoState.subtitleFontName
+                  .split(',')
+                  .map((e) => e.trim())
+                  .where((e) => e.isNotEmpty)
+                  .toSet();
               return AdaptivePlayerMenuTile(
-                title: const Text('字体库（点击应用）'),
+                title: const Text('字体库（点击多选）'),
                 subtitle: ConstrainedBox(
                   constraints: const BoxConstraints(maxHeight: 140),
                   child: SingleChildScrollView(
@@ -597,19 +604,25 @@ class _CupertinoSubtitleSettingsPaneState
                               name,
                               style: TextStyle(
                                 fontSize: 12,
-                                color: videoState.subtitleFontName == name
+                                color: selectedFonts.contains(name)
                                     ? CupertinoColors.activeBlue
                                     : CupertinoColors.label,
                               ),
                             ),
                             backgroundColor: CupertinoColors.systemGrey5,
                             side: BorderSide(
-                              color: videoState.subtitleFontName == name
+                              color: selectedFonts.contains(name)
                                   ? CupertinoColors.activeBlue
                                   : CupertinoColors.systemGrey4,
                             ),
-                            onPressed: () =>
-                                videoState.setSubtitleFontName(name),
+                            onPressed: () {
+                              final next = selectedFonts.contains(name)
+                                  ? selectedFonts
+                                      .where((e) => e != name)
+                                      .join(',')
+                                  : [...selectedFonts, name].join(',');
+                              videoState.setSubtitleFontName(next);
+                            },
                           ),
                       ],
                     ),

@@ -97,8 +97,21 @@ class _SubtitleSettingsMenuState extends State<SubtitleSettingsMenu> {
     }
   }
 
-  /// 多选中的字体名集合（点击 toggle；再点取消）
-  final Set<String> _selectedFonts = {};
+  /// 多选中的字体名集合（点击 toggle；再点取消）。
+  /// 初始化自持久化的 subtitleFontName：否则重开菜单后所有芯片都无高亮，
+  /// 且下一次 toggle 会把之前的多选结果整体覆盖丢失。
+  late final Set<String> _selectedFonts;
+
+  @override
+  void initState() {
+    super.initState();
+    final videoState = Provider.of<VideoPlayerState>(context, listen: false);
+    _selectedFonts = videoState.subtitleFontName
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet();
+  }
 
   void _toggleFontSelection(
       VideoPlayerState videoState, String name) {

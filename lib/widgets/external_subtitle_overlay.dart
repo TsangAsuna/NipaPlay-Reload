@@ -234,75 +234,76 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                   _twoFingerTimer?.cancel();
                                   _twoFingerTimer = null;
                                 },
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: textBox,
-                                ),
+                                child: textBox,
                               );
 
                               // 框视觉层（外扩，不参与尺寸；按钮/手柄独立可点）
-                              final Widget boxLayer = Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  dragArea,
-                                  // 外扩虚线边框（-32 外扩，不撑尺寸）
-                                  Positioned(
-                                    left: -32,
-                                    top: -32,
-                                    right: -32,
-                                    bottom: -32,
-                                    child: IgnorePointer(
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          border: Border.all(
-                                            color: _locked
-                                                ? const Color(0x99FFD54F)
-                                                : const Color(0x99FFFFFF),
-                                            width: 1,
+                              // dragArea 在底层（含 textBox + 长按拖动 + 点框外收框）；
+                              // 按钮/手柄在 dragArea 之上（Stack 上层优先命中，点击按钮不冒泡收框）
+                              final Widget boxLayer = Transform.translate(
+                                offset: const Offset(-24, -24),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      dragArea,
+                                      // 外扩虚线边框（Padding 内，覆盖整个框）
+                                      Positioned.fill(
+                                        child: IgnorePointer(
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              border: Border.all(
+                                                color: _locked
+                                                    ? const Color(0x99FFD54F)
+                                                    : const Color(0x99FFFFFF),
+                                                width: 1,
+                                              ),
+                                            ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                  ),
-                                  // 设置按钮（左上外角，独立可点）
-                                  Positioned(
-                                    left: -42,
-                                    top: -42,
-                                    child: GestureDetector(
-                                      behavior: HitTestBehavior.opaque,
-                                      onTap: () =>
-                                          _showSrtSettingsPanel(context, videoState),
-                                      child: const Icon(
-                                        Icons.tune,
-                                        size: 18,
-                                        color: Color(0xFFFFFFFF),
-                                        shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                                      // 设置按钮（左上角，Padding 内可命中）
+                                      Positioned(
+                                        left: 2,
+                                        top: 2,
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTap: () =>
+                                              _showSrtSettingsPanel(context, videoState),
+                                          child: const Icon(
+                                            Icons.tune,
+                                            size: 18,
+                                            color: Color(0xFFFFFFFF),
+                                            shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                                          ),
+                                        ),
                                       ),
-                                    ),
-                                  ),
-                                  // 背景切换键（右上外角，独立可点）
-                                  Positioned(
-                                    right: -42,
-                                    top: -42,
-                                    child: GestureDetector(
-                                      behavior: HitTestBehavior.opaque,
-                                      onTap: () {
-                                        setState(() {
-                                          _subtitleBgEnabled =
-                                              !_subtitleBgEnabled;
-                                        });
-                                      },
-                                      child: const Icon(
-                                        Icons.format_color_fill,
-                                        size: 18,
-                                        color: Color(0xFFFFFFFF),
-                                        shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                                      // 背景切换键（右上角）
+                                      Positioned(
+                                        right: 2,
+                                        top: 2,
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTap: () {
+                                            setState(() {
+                                              _subtitleBgEnabled =
+                                                  !_subtitleBgEnabled;
+                                            });
+                                          },
+                                          child: const Icon(
+                                            Icons.format_color_fill,
+                                            size: 18,
+                                            color: Color(0xFFFFFFFF),
+                                            shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                                          ),
+                                        ),
                                       ),
-                                    ),
+                                      // 右下角拉伸手柄（Padding 内可命中）
+                                      makeResizeHandle(videoState),
+                                    ],
                                   ),
-                                  // 右下角拉伸手柄（独立可点）
-                                  makeResizeHandle(videoState),
-                                ],
+                                ),
                               );
 
                               positionedContent = _boxVisible ? boxLayer : dragArea;
@@ -533,8 +534,8 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
     double? startScale;
     double startX = 0;
     return Positioned(
-      right: -52,
-      bottom: -52,
+      right: 4,
+      bottom: 4,
       child: Listener(
         behavior: HitTestBehavior.opaque,
         onPointerDown: (event) {

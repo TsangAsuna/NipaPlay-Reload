@@ -134,34 +134,24 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                     ),
                             );
 
-                            // SRT 拖动交互（nPlayer 式）：
-                            // - 长按字幕 -> 显示编辑框 + 锁定键
-                            // - 未锁定时单指拖动（水平 marginX / 垂直 position）
-                            // - 点锁定键 -> 锁定（位置冻结，锁键隐藏）
-                            // - 锁定后点击字幕 -> 解锁并重新显示锁键
+                            // SRT 拖动交互：
+                            // - 未锁定时单指拖动字幕 -> 显示编辑框并调整位置（水平 marginX / 垂直 position）
+                            // - 点锁定键 -> 锁定并消除编辑框（位置冻结）
+                            // - 锁定后点击字幕 -> 解锁并重新显示编辑框
+                            // 长按不再出框；未锁定时点击字幕不收起编辑框（避免“点空域关框”歧义）。
                             // 手势只包文本层：命中区限定在字幕周围，避免全屏拦截暂停等触摸。
                             // 用 Pan（单指）拖动：与音量/亮度 VerticalDrag 在竞技场竞争，
                             // 拖动激活后置 subtitleDragActive 屏蔽音量/亮度/进度手势。
                             Widget positionedContent = draggable
                                 ? GestureDetector(
                                     behavior: HitTestBehavior.opaque,
-                                    onLongPressStart: (_) {
-                                      if (!_boxVisible) {
-                                        setState(() => _boxVisible = true);
-                                      }
-                                    },
                                     onTapUp: (_) {
                                       if (_locked) {
-                                        // 锁定时点击字幕 -> 解锁并显示锁键
+                                        // 锁定时点击字幕 -> 解锁并重新显示编辑框
                                         setState(() {
                                           _locked = false;
                                           _boxVisible = true;
                                         });
-                                      } else {
-                                        // 未锁定时点击字幕 -> 收起编辑框
-                                        if (_boxVisible) {
-                                          setState(() => _boxVisible = false);
-                                        }
                                       }
                                     },
                                     onPanStart: _locked
@@ -262,7 +252,11 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                                       child: GestureDetector(
                                                         behavior: HitTestBehavior.opaque,
                                                         onTap: () {
-                                                          setState(() => _locked = true);
+                                                          // 锁定并消除编辑框（位置冻结）
+                                                          setState(() {
+                                                            _locked = true;
+                                                            _boxVisible = false;
+                                                          });
                                                         },
                                                         child: const Icon(
                                                           Icons.lock_outline,

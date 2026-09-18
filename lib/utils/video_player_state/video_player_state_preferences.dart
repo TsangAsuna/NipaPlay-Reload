@@ -1829,6 +1829,9 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
       prefs.getDouble(_subtitleScaleKey) ??
           VideoPlayerState.defaultSubtitleScale,
     );
+    _srtSubtitleScale = _clampSubtitleScale(
+        prefs.getDouble(_srtSubtitleScaleKey) ??
+            VideoPlayerState.defaultSubtitleScale);
     _srtSubtitleDelaySeconds = prefs.getDouble(_srtSubtitleDelayKey) ??
         VideoPlayerState.defaultSubtitleDelaySeconds;
     _subtitleDelaySeconds = prefs.getDouble(_subtitleDelayKey) ??
@@ -1889,6 +1892,16 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     await applySubtitleStylePreference();
     _notifyListeners();
   }
+
+    /// 设置 SRT 独立字号（不碰内核/内嵌字号）
+    Future<void> setSrtSubtitleScale(double scale) async {
+      final resolved = _clampSubtitleScale(scale);
+      if ((_srtSubtitleScale - resolved).abs() < 0.0001) return;
+      _srtSubtitleScale = resolved;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_srtSubtitleScaleKey, resolved);
+      _notifyListeners();
+    }
 
   /// 设置 SRT 独立时轴偏移（秒）
   Future<void> setSrtSubtitleDelaySeconds(double seconds) async {

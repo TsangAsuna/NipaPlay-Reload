@@ -166,13 +166,8 @@ class SettingsProvider with ChangeNotifier {
     }
   }
 
-  static double _defaultDanmakuSupersample() {
-    if (globals.isIPad) {
-      return 1.5;
-    }
-    if (globals.isTablet || (globals.isDesktop && _defaultDprBelow2())) {
-      return 2.0;
-    }
+  // 默认关闭弹幕超采样（用户选什么就保持什么；首次默认 0，不强制 iPad 1.5x）
+  double _defaultDanmakuSupersample() {
     return 0.0;
   }
 

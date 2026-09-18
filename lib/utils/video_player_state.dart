@@ -588,6 +588,7 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   static const SubtitleAlignX defaultSubtitleAlignX = SubtitleAlignX.center;
   static const SubtitleAlignY defaultSubtitleAlignY = SubtitleAlignY.bottom;
   final String _subtitleScaleKey = 'subtitle_scale';
+  final String _srtSubtitleScaleKey = 'srt_subtitle_scale';
   final String _subtitleDelayKey = 'subtitle_delay_seconds';
   final String _subtitlePositionKey = 'subtitle_position';
   final String _subtitleAlignXKey = 'subtitle_align_x';
@@ -607,6 +608,7 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   final String _subtitleOverrideModeKey = 'subtitle_override_mode';
     final String _srtSubtitleDelayKey = 'srt_subtitle_delay';
     double _subtitleScale = defaultSubtitleScale;
+  double _srtSubtitleScale = defaultSubtitleScale;
   double _subtitleDelaySeconds = defaultSubtitleDelaySeconds;
   double _srtSubtitleDelaySeconds = defaultSubtitleDelaySeconds;
   double _subtitlePosition = defaultSubtitlePosition;
@@ -1151,6 +1153,7 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   double get next2DanmakuOutlineWidth => _next2DanmakuOutlineWidth;
   TitanDanmakuSettings get titanDanmakuSettings => _titanDanmakuSettings;
   double get subtitleScale => _subtitleScale;
+  double get srtSubtitleScale => _srtSubtitleScale;
   double get subtitleDelayCustomLimitSeconds {
     final durationSeconds = _duration.inMilliseconds / 1000;
     if (durationSeconds <= 0) {

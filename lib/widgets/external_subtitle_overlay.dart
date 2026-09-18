@@ -61,7 +61,8 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                   ? constraints.maxWidth
                   : MediaQuery.of(context).size.width;
               final baseFontSize = (width * 0.03).clamp(18.0, 42.0).toDouble();
-              final fontSize = (baseFontSize * videoState.subtitleScale)
+              final fontSize = (baseFontSize *
+                  videoState.srtSubtitleScale)
                   .clamp(14.0, 72.0)
                   .toDouble();
 
@@ -113,7 +114,8 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
 
               // 文本层：ConstrainedBox + 字幕文本（不含定位/拖拽手势）
                             final Widget textBox = ConstrainedBox(
-                              constraints: BoxConstraints(maxWidth: width * 0.9),
+                              constraints: BoxConstraints(
+                              minWidth: 120, maxWidth: width * 0.9),
                               child: _subtitleBgEnabled
                                   ? Container(
                                       padding: const EdgeInsets.symmetric(
@@ -305,7 +307,6 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                     ),
                                   ),
                                   // 右下角拉伸手柄（textBox 内右下，可命中）
-                                  makeResizeHandle(videoState),
                                 ],
                               );
 
@@ -449,28 +450,51 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                   ],
                 ),
                 const SizedBox(height: 14),
-                Text('字体', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                Text('字号（独立于内嵌字幕）', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const SizedBox(height: 4),
+                ValueListenableBuilder<double>(
+                  valueListenable: ValueNotifier<double>(videoState.srtSubtitleScale),
+                  builder: (context, scale, _) {
+                    return Slider(
+                      value: scale.clamp(0.5, 3.0),
+                      min: 0.5,
+                      max: 3.0,
+                      divisions: 50,
+                      label: '${scale.toStringAsFixed(2)}x',
+                      onChanged: (value) => videoState.setSrtSubtitleScale(value),
+                    );
+                  },
+                ),
+                const SizedBox(height: 14),
+                Text('字体（可多选）', style: TextStyle(color: Colors.white70, fontSize: 13)),
                 const SizedBox(height: 6),
                 FutureBuilder<List<String>>(
                   future: _listSubtitleFontNames(videoState),
                   builder: (context, snapshot) {
                     final fonts = snapshot.data ?? <String>[];
                     final current = videoState.subtitleFontName;
-                    return DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: fonts.contains(current) ? current : null,
-                        dropdownColor: const Color(0xFF202020),
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
-                        isExpanded: true,
-                        hint: const Text('默认字体', style: TextStyle(color: Colors.white54)),
-                        items: [
-                          for (final f in fonts)
-                            DropdownMenuItem(value: f, child: Text(f, overflow: TextOverflow.ellipsis)),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) videoState.setSubtitleFontName(value);
-                        },
-                      ),
+                    // 当前字体按逗号拆分（多选字体为逗号分隔 fallback 列表）
+                    final selected = current
+                        .split(',')
+                        .map((e) => e.trim())
+                        .where((e) => e.isNotEmpty)
+                        .toSet();
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final f in fonts)
+                          FilterChip(
+                            label: Text(f, style: const TextStyle(fontSize: 12)),
+                            selected: selected.contains(f),
+                            onSelected: (sel) {
+                              final next = sel
+                                  ? [...selected, f].join(',')
+                                  : selected.where((e) => e != f).join(',');
+                              videoState.setSubtitleFontName(next);
+                            },
+                          ),
+                      ],
                     );
                   },
                 ),
@@ -530,48 +554,6 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
   }
 
   // 右下角拉伸手柄：Listener 原生事件，不与长按抢；放在拖动 GestureDetector 外，确保可命中
-  Widget makeResizeHandle(VideoPlayerState v) {
-    double? startScale;
-    double startX = 0;
-    return Positioned(
-      right: 4,
-      bottom: 4,
-      child: Listener(
-        behavior: HitTestBehavior.opaque,
-        onPointerDown: (event) {
-          debugPrint('[SubtitleOverlay] 拉伸柄按下 scale=' + v.subtitleScale.toString());
-          startScale = v.subtitleScale;
-          startX = event.position.dx;
-        },
-        onPointerMove: (event) {
-          if (_locked) return;
-          final base = startScale ?? v.subtitleScale;
-          final deltaX = event.position.dx - startX;
-          final next = (base * (1 + deltaX / 240))
-              .clamp(0.4, 4.0)
-              .toDouble();
-          if (next != v.subtitleScale) {
-            v.setSubtitleScale(next);
-          }
-        },
-        child: Container(
-          width: 36,
-          height: 36,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: const Color(0x66000000),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: const Icon(
-            Icons.open_in_full,
-            size: 16,
-            color: Color(0xFFFFFFFF),
-            shadows: [Shadow(blurRadius: 3, color: Colors.black)],
-          ),
-        ),
-      ),
-    );
-  }
 
   // 右下角拉伸手柄：Listener 原生事件，不与长按抢；放在拖动 GestureDetector 外，确保可命中
 

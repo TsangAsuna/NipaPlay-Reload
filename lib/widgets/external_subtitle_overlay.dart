@@ -187,7 +187,7 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                   v.setSubtitleMarginX(
                                     (_dragStartMarginX +
                                             details.offsetFromOrigin.dx)
-                                        .clamp(-300.0, 300.0),
+                                        .clamp(-500.0, 500.0),
                                   );
                                   final stageH =
                                       MediaQuery.of(context).size.height;
@@ -244,70 +244,68 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                               // 框视觉层（外扩，不参与尺寸；按钮/手柄独立可点）
                               // dragArea 在底层（含 textBox + 长按拖动 + 点框外收框）；
                               // 按钮/手柄在 dragArea 之上（Stack 上层优先命中，点击按钮不冒泡收框）
-                              final Widget boxLayer = Transform.translate(
-                                offset: const Offset(-19, -19),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(19),
-                                  child: Stack(
-                                    clipBehavior: Clip.none,
-                                    children: [
-                                      dragArea,
-                                      // 外扩虚线边框（Padding 内，覆盖整个框）
-                                      Positioned.fill(
-                                        child: IgnorePointer(
-                                          child: Container(
-                                            decoration: BoxDecoration(
-                                              border: Border.all(
-                                                color: _locked
-                                                    ? const Color(0x99FFD54F)
-                                                    : const Color(0x99FFFFFF),
-                                                width: 1,
-                                              ),
-                                            ),
+                              // 出框不跳：Stack 尺寸恒等于 textBox（Positioned 不参与尺寸），
+                              // Align 对齐不因出框变化；按钮/手柄在 textBox 内（正坐标可命中）
+                              final Widget boxLayer = Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  dragArea,
+                                  // 虚线边框（覆盖 textBox 范围）
+                                  Positioned.fill(
+                                    child: IgnorePointer(
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          border: Border.all(
+                                            color: _locked
+                                                ? const Color(0x99FFD54F)
+                                                : const Color(0x99FFFFFF),
+                                            width: 1,
                                           ),
                                         ),
                                       ),
-                                      // 设置按钮（左上角，Padding 内可命中）
-                                      Positioned(
-                                        left: 2,
-                                        top: 2,
-                                        child: GestureDetector(
-                                          behavior: HitTestBehavior.opaque,
-                                          onTap: () =>
-                                              _showSrtSettingsPanel(context, videoState),
-                                          child: const Icon(
-                                            Icons.tune,
-                                            size: 18,
-                                            color: Color(0xFFFFFFFF),
-                                            shadows: [Shadow(blurRadius: 4, color: Colors.black)],
-                                          ),
-                                        ),
-                                      ),
-                                      // 背景切换键（右上角）
-                                      Positioned(
-                                        right: 2,
-                                        top: 2,
-                                        child: GestureDetector(
-                                          behavior: HitTestBehavior.opaque,
-                                          onTap: () {
-                                            setState(() {
-                                              _subtitleBgEnabled =
-                                                  !_subtitleBgEnabled;
-                                            });
-                                          },
-                                          child: const Icon(
-                                            Icons.format_color_fill,
-                                            size: 18,
-                                            color: Color(0xFFFFFFFF),
-                                            shadows: [Shadow(blurRadius: 4, color: Colors.black)],
-                                          ),
-                                        ),
-                                      ),
-                                      // 右下角拉伸手柄（Padding 内可命中）
-                                      makeResizeHandle(videoState),
-                                    ],
+                                    ),
                                   ),
-                                ),
+                                  // 设置按钮（左上角）
+                                  Positioned(
+                                    left: 2,
+                                    top: 2,
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () {
+                                        debugPrint('[SubtitleOverlay] 点击设置按钮');
+                                        _showSrtSettingsPanel(context, videoState);
+                                      },
+                                      child: const Icon(
+                                        Icons.tune,
+                                        size: 18,
+                                        color: Color(0xFFFFFFFF),
+                                        shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                                      ),
+                                    ),
+                                  ),
+                                  // 背景切换键（右上角）
+                                  Positioned(
+                                    right: 2,
+                                    top: 2,
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () {
+                                        debugPrint('[SubtitleOverlay] 点击背景切换按钮');
+                                        setState(() {
+                                          _subtitleBgEnabled = !_subtitleBgEnabled;
+                                        });
+                                      },
+                                      child: const Icon(
+                                        Icons.format_color_fill,
+                                        size: 18,
+                                        color: Color(0xFFFFFFFF),
+                                        shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                                      ),
+                                    ),
+                                  ),
+                                  // 右下角拉伸手柄（textBox 内右下，可命中）
+                                  makeResizeHandle(videoState),
+                                ],
                               );
 
                               positionedContent = _boxVisible ? boxLayer : dragArea;

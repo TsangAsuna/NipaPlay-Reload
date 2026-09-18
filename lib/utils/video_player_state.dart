@@ -572,8 +572,9 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   static const double subtitleDelayStep = 0.1;
   static const double defaultSubtitleDelaySeconds = 0.0;
   static const double defaultSubtitlePosition = 100.0;
-  static const double minSubtitlePosition = 0.0;
-  static const double maxSubtitlePosition = 100.0;
+  // 允许拖出屏幕（Align y 可 >1 文本在屏幕外下方，<0 在上方）
+  static const double minSubtitlePosition = -20.0;
+  static const double maxSubtitlePosition = 120.0;
   static const double defaultSubtitleMarginX = 0.0;
   static const double defaultSubtitleMarginY = 0.0;
   static const double defaultSubtitleOpacity = 1.0;

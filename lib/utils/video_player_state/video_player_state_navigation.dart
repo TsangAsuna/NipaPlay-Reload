@@ -847,7 +847,7 @@ extension VideoPlayerStateNavigation on VideoPlayerState {
 
       if (!_isSeeking && hasVideo) {
         if (_status == PlayerStatus.playing) {
-          final playerPosition = player.position;
+          var playerPosition = player.position;
           final playerDuration = player.mediaInfo.duration;
 
           if (playerPosition >= 0 && playerDuration > 0) {
@@ -907,7 +907,31 @@ extension VideoPlayerStateNavigation on VideoPlayerState {
               }
             }
             _lastElapsedUs = currentElapsedUs;
-            final playerMs = playerPosition.toDouble();
+            var playerMs = playerPosition.toDouble();
+
+            // [MDK-SPIKE-GUARD] 缓冲抖动时 MDK 的 position 可能瞬时前跳
+            // 数秒又回落（日志实证 raw 183828→191764→184618）。平滑时钟
+            // 追单样本尖刺会让字幕/弹幕前跳数秒再回弹（用户感知"字幕早
+            // 1-2 秒"）。策略：非 seek 状态下 position 相对平滑时钟前跳
+            // 超过 1.5s 视为可疑尖刺，连续 3 个采样（约 50ms/帧）仍保持
+            // 才接受为真实跳变；否则用平滑时钟外推值替代本次采样。
+            final spikeGuardExpected = _playbackTimeMs.value + 1500.0;
+            if (_seekTargetMs == null && playerMs > spikeGuardExpected) {
+              _rawSpikeStreak += 1;
+              if (_rawSpikeStreak < 3) {
+                final extrapolated = (_smoothAnchorMs +
+                        (currentElapsedUs - _smoothAnchorElapsedUs) /
+                            1000.0 *
+                            effectivePlaybackRate)
+                    .clamp(0.0, _duration.inMilliseconds.toDouble());
+                playerMs = extrapolated;
+                playerPosition = playerMs.round();
+              } else {
+                _rawSpikeStreak = 0;
+              }
+            } else {
+              _rawSpikeStreak = 0;
+            }
 
             // seek 保护：player.position 更新有延迟，在它追上 seekTarget 之前
             // 保持锚定在 seek 目标位置，避免弹幕闪回旧位置

@@ -383,6 +383,9 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   double _smoothAnchorMs = 0.0; // 上次锚定的播放位置（ms）
   int _smoothAnchorElapsedUs = 0; // 锚定时的 Ticker elapsed（微秒）
   int _lastRawPlayerMs = -1; // 上次 player.position 原始值，用于检测变化
+  // [MDK-SPIKE-GUARD] MDK 缓冲抖动时 position 会瞬时前跳数秒又回落，
+  // 连续采样计数：<3 视为尖刺拒绝追锚，>=3 视为真实跳变接受。
+  int _rawSpikeStreak = 0;
   int _lastElapsedUs = 0; // 最近一次 Ticker elapsed（微秒），供 seek 时使用
   int _lastDiagFrameSkipTimeMs = 0; // [NEXT-DIAG] FRAME SKIP 日志节流：上次输出时间（ms）
   int _diagBaselineFrameUs = 0; // [NEXT-DIAG] 自适应帧间隔基线（取最小帧间隔）

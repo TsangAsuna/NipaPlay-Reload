@@ -114,22 +114,22 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
     return sha1.convert(utf8.encode(videoPath)).toString();
   }
 
-  // 保存外部字幕信息到SharedPreferences
-  Future<void> _saveExternalSubtitles(BuildContext context) async {
-    if (kIsWeb) return;
+  // 保存外部字幕信息到SharedPreferences。
+  // videoPath 由调用方显式传入：iPad 大屏模式下菜单面板可能已随弹窗页面
+  // 路由卸载，挂载流程的持久化不能依赖 Provider.of(context)（否则面板
+  // 卸载时保存被跳过，字幕轨道列表读到空——"挂载成功但列表空"的根因）。
+  Future<void> _saveExternalSubtitles(String videoPath) async {
+    if (kIsWeb || videoPath.isEmpty) return;
     try {
-      final videoState = Provider.of<VideoPlayerState>(context, listen: false);
-      if (videoState.currentVideoPath == null) return;
-
       final prefs = await SharedPreferences.getInstance();
-      final videoHashKey = _getVideoHashKey(videoState.currentVideoPath!);
+      final videoHashKey = _getVideoHashKey(videoPath);
 
       await prefs.setString(
           'external_subtitles_$videoHashKey', json.encode(_externalSubtitles));
 
       // 直写 prefs 绕过了 SubtitleService 的内存缓存，失效它保证
       // Cupertino 面板下次读取到最新列表（避免陈旧列表/按索引删错）。
-      SubtitleService().clearCache(videoState.currentVideoPath!);
+      SubtitleService().clearCache(videoPath);
 
       // 获取当前激活的字幕索引
       final activeTrackIndex = _getActiveExternalSubtitleIndex();
@@ -138,7 +138,6 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
             'last_active_subtitle_$videoHashKey', activeTrackIndex);
       }
     } catch (e) {
-      // print('保存外部字幕失败: $e');
       debugPrint('保存外部字幕失败: $e');
     }
   }
@@ -224,8 +223,8 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
       );
 
       // 保存字幕列表
+      await _saveExternalSubtitles(videoState.currentVideoPath ?? '');
       if (mounted && context.mounted) {
-        await _saveExternalSubtitles(context);
         BlurSnackBar.show(context, '已加载字幕文件: $fileName');
       }
     } catch (e) {
@@ -418,8 +417,9 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
         'Subtitle',
         '远程字幕挂载完成: $loadedCount 个，已应用叠层/内核轨',
       );
+      // 持久化不依赖面板存活（iPad 大屏模式下面板可能已卸载）。
+      await _saveExternalSubtitles(videoPath);
       if (mounted && context.mounted) {
-        await _saveExternalSubtitles(context);
         BlurSnackBar.show(context, '已加载 $loadedCount 个字幕');
       }
     } catch (e) {
@@ -556,10 +556,7 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
           }
 
           // 保存设置 (主要是保存外部字幕列表的状态，例如哪个是激活的)
-          if (context.mounted) {
-            // Re-check mounted as it's an async gap
-            await _saveExternalSubtitles(context);
-          }
+          await _saveExternalSubtitles(videoState.currentVideoPath ?? '');
           didApply = true;
 
           // 通知字幕轨道变化 (This might be redundant if player events drive everything)
@@ -589,12 +586,12 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
 
     final subtitleInfo = _externalSubtitles[index];
     final fileName = subtitleInfo['name'];
+    final videoState = Provider.of<VideoPlayerState>(context, listen: false);
 
     // 如果当前字幕是激活的，取消挂载（只卸外部字幕，内嵌轨保持原状；
     // SRT 走叠层不动内嵌，ASS/SSA 才清内核轨）
     if (subtitleInfo['isActive'] == true) {
       final filePath = subtitleInfo['path'] as String;
-      final videoState = Provider.of<VideoPlayerState>(context, listen: false);
       await videoState.removeExternalSubtitle(filePath);
       subtitleInfo['isActive'] = false;
     }
@@ -605,8 +602,8 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
     });
 
     // 保存更新后的列表
+    await _saveExternalSubtitles(videoState.currentVideoPath ?? '');
     if (context.mounted) {
-      await _saveExternalSubtitles(context);
       BlurSnackBar.show(context, '已移除字幕: $fileName');
     }
   }
@@ -649,8 +646,11 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
 
     // 保存字幕列表
     if (context.mounted) {
-      // Re-check mounted as it's an async gap
-      _saveExternalSubtitles(context);
+      final videoPath = Provider.of<VideoPlayerState>(context, listen: false)
+              .currentVideoPath ??
+          '';
+      // 该函数为 void 回调,与原实现一致采用 fire-and-forget
+      _saveExternalSubtitles(videoPath);
     }
   }
 
@@ -689,9 +689,7 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
     });
 
     // 保存字幕列表
-    if (context.mounted) {
-      _saveExternalSubtitles(context);
-    }
+    _saveExternalSubtitles(videoState.currentVideoPath ?? '');
   }
 
   @override
@@ -834,9 +832,8 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
                                 index,
                               );
                               switched = true;
-                              if (context.mounted) {
-                                await _saveExternalSubtitles(context);
-                              }
+                              await _saveExternalSubtitles(
+                                  videoState.currentVideoPath ?? '');
                             },
                             () async => false,
                           );

@@ -668,6 +668,11 @@ class ErikaPlayerAdapter
   int _stallRecoveryCount = 0;
   bool _stallNudgeAttempted = false;
   bool _stallRecoveryInFlight = false;
+  // 渲染帧活性监控：内核停摆的一种形态是“位置事件仍在发、画面帧已停”
+  // （回前台黑屏但字幕在播），位置静默检测对它失明。改用 presenter 统计
+  // 的 renderedVideoFrames 是否推进作为视频管线的真活性信号。
+  Timer? _frameActivityTimer;
+  int? _lastRenderedFramesSample;
 
   // 重开媒体后需要恢复的会话级状态（弹幕/外挂字幕/字幕缩放等）。
   String? _lastExternalSubtitlePath;
@@ -773,6 +778,7 @@ class ErikaPlayerAdapter
         _state = PlayerPlaybackState.stopped;
         _lastPositionMs = 0;
         _playbackWatchdogTimer?.cancel();
+        _stopFrameActivityMonitor();
         _positionEventCount = 0;
         _lastNativePositionEventAt = null;
         _dispatchStateCommand('stop', _player.stop);
@@ -909,6 +915,7 @@ class ErikaPlayerAdapter
       // 并复位活性信号（跨媒体累计会让“每媒体设防”与静默判定失真——
       // 换集后新媒体起播缓冲超过静默阈值会被误判为停滞）。
       _playbackWatchdogTimer?.cancel();
+      _stopFrameActivityMonitor();
       _stallRecoveryCount = 0;
       _stallNudgeAttempted = false;
       _positionEventCount = 0;
@@ -930,6 +937,7 @@ class ErikaPlayerAdapter
       return;
     }
     _playbackWatchdogTimer?.cancel();
+    _stopFrameActivityMonitor();
     await _player.ensureCreated();
     await _player.open(_media);
     _subtitleTrace('prepare open complete media=$_media');
@@ -977,6 +985,7 @@ class ErikaPlayerAdapter
     _danmakuConfigTimer?.cancel();
     _danmakuConfigTimer = null;
     _playbackWatchdogTimer?.cancel();
+    _stopFrameActivityMonitor();
     _playbackWatchdogTimer = null;
     for (final completer in _pendingDanmakuConfigCompleters) {
       if (!completer.isCompleted) {
@@ -1111,6 +1120,7 @@ class ErikaPlayerAdapter
   Future<void> pauseDirectly() async {
     _ensureSupported();
     _playbackWatchdogTimer?.cancel();
+    _stopFrameActivityMonitor();
     // 等待在途 play 完成后再下发原生 pause：暂停态 seek 的
     // play→(延迟)→pause 序列必须保证原生命令顺序（方法通道按调用序
     // 投递），否则 pause 会先于 play 到达内核、被随后完成的 play 覆盖，
@@ -1537,6 +1547,71 @@ class ErikaPlayerAdapter
     _playbackWatchdogTimer = Timer(_playbackWatchdogDelay, () {
       _handlePlaybackWatchdogFired();
     });
+    // 同时启动渲染帧活性监控：位置事件静默检测对“黑屏但位置事件仍在发”
+    // 的停摆形态失明，渲染帧计数才是视频管线的真活性。
+    _startFrameActivityMonitor();
+  }
+
+  /// 每 2.5 秒采样一次 presenter 渲染帧计数；playing 状态下连续两次采样
+  /// 帧数无推进即判定视频管线停摆，走与位置静默相同的自愈路径。
+  void _startFrameActivityMonitor() {
+    _frameActivityTimer?.cancel();
+    _lastRenderedFramesSample = null;
+    _frameActivityTimer = Timer.periodic(
+      const Duration(milliseconds: 2500),
+      (_) => unawaited(_checkFrameActivity()),
+    );
+  }
+
+  void _stopFrameActivityMonitor() {
+    _frameActivityTimer?.cancel();
+    _frameActivityTimer = null;
+    _lastRenderedFramesSample = null;
+  }
+
+  Future<void> _checkFrameActivity() async {
+    if (_disposed || _stallRecoveryInFlight) {
+      return;
+    }
+    if (_state != PlayerPlaybackState.playing) {
+      return;
+    }
+    final int? rendered;
+    try {
+      final stats = await _player.getPresenterStats();
+      rendered = stats.renderedVideoFrames;
+    } catch (_) {
+      return;
+    }
+    if (_disposed || rendered == null || rendered <= 0) {
+      return;
+    }
+    final previous = _lastRenderedFramesSample;
+    _lastRenderedFramesSample = rendered;
+    if (previous == null || rendered != previous) {
+      // 帧在推进 = 播放正常，清掉停滞计数。
+      _stallRecoveryCount = 0;
+      _stallNudgeAttempted = false;
+      return;
+    }
+    if (_stallNudgeAttempted) {
+      return; // 已唤醒过一轮，交给位置静默/重开流程处理，避免重复计数。
+    }
+    _stallNudgeAttempted = true;
+    debugPrint(
+      '[Erika] playing 状态下渲染帧数无推进($previous)，判定视频管线停摆，'
+      '自动执行 pause→play 唤醒',
+    );
+    logPlayerEvent(
+      'Erika',
+      '检测到回前台画面停滞（渲染帧无推进），自动执行 pause→play 唤醒',
+      level: 'WARN',
+    );
+    unawaited(
+      _nudgeStalledPlayback().whenComplete(() {
+        _armPlaybackWatchdog(resetNudgeAttempt: false);
+      }),
+    );
   }
 
   void _handlePlaybackWatchdogFired() {
@@ -1678,6 +1753,7 @@ class ErikaPlayerAdapter
       return false;
     }
     _playbackWatchdogTimer?.cancel();
+    _stopFrameActivityMonitor();
     final restorePositionMs = _lastPositionMs;
     // open() 会重置内核侧弹幕配置：先截获当前配置用于重放，同时清空去重
     // 快照，保证重放后的下一次常规配置下发也不会被差量去重吞掉。

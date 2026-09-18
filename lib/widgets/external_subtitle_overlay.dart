@@ -444,7 +444,7 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'SRT 字幕设置（独立于全局）',
+                  'SRT 字幕设置',
                   style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 12),
@@ -512,7 +512,7 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                   ],
                 ),
                 const SizedBox(height: 14),
-                Text('字号（独立于内嵌字幕）', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                Text('字号', style: TextStyle(color: Colors.white70, fontSize: 13)),
                 const SizedBox(height: 4),
                 // Consumer 而非一次性 ValueNotifier：之前每次重建都新建
                 // ValueNotifier(srtSubtitleScale)，拖动时 thumb 永不移动，

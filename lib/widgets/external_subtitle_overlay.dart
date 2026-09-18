@@ -149,12 +149,23 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                             // 拖动激活期间置 subtitleDragActive 屏蔽音量/亮度/进度手势。
                             Widget textHitArea = GestureDetector(
                               behavior: HitTestBehavior.opaque,
+                              onLongPressStart: (_) {
+                                // 长按字幕 -> 出框（子层长按赢过父层长按倍速；有框时父层已被禁）
+                                if (!_boxVisible) {
+                                  setState(() {
+                                    _locked = false;
+                                    _boxVisible = true;
+                                  });
+                                  videoState.setSubtitleEditBoxVisible(true);
+                                }
+                              },
                               onPanStart: _locked
                                   ? null
                                   : (details) {
                                       videoState.setSubtitleDragActive(true);
                                       if (!_boxVisible) {
                                         setState(() => _boxVisible = true);
+                                        videoState.setSubtitleEditBoxVisible(true);
                                       }
                                     },
                               onPanUpdate: _locked
@@ -270,6 +281,7 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                                           setState(() {
                                                             _locked = true;
                                                             _boxVisible = false;
+                                                            videoState.setSubtitleEditBoxVisible(false);
                                                           });
                                                         },
                                                         child: const Icon(

@@ -296,6 +296,16 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   bool _isStartupMessageFlowActive = false;
   // SRT 字幕拖动激活标志：拖动期间屏蔽音量/亮度/进度手势，避免误触
   bool _subtitleDragActive = false;
+  // 进后台前是否在播放（用于回前台自动续播）
+  bool _wasPlayingBeforeBackground = false;
+  // SRT 编辑框可见标志：框可见/字幕拖动中屏蔽长按倍速
+  bool _subtitleEditBoxVisible = false;
+  bool get subtitleEditBoxVisible => _subtitleEditBoxVisible;
+  void setSubtitleEditBoxVisible(bool visible) {
+    if (_subtitleEditBoxVisible == visible) return;
+    _subtitleEditBoxVisible = visible;
+    _notifyListeners();
+  }
   bool _showControls = true;
   bool _showRightMenu = false; // 控制右侧菜单显示状态
   final String _desktopHoverSettingsMenuEnabledKey =

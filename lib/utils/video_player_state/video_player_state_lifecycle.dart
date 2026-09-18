@@ -10,9 +10,18 @@ extension VideoPlayerStateLifecycle on VideoPlayerState {
         state == AppLifecycleState.detached) {
       if (_status == PlayerStatus.playing) {
         debugPrint('[VideoPlayerState] 应用进入后台，自动暂停播放');
+        _wasPlayingBeforeBackground = true;
         pause();
       }
     } else if (state == AppLifecycleState.resumed) {
+      // 后台因本功能自动暂停过 -> 回前台自动续播（erika/任何内核统一恢复）
+      final resumeAfterBg = _wasPlayingBeforeBackground &&
+          _status == PlayerStatus.paused;
+      _wasPlayingBeforeBackground = false;
+      if (resumeAfterBg) {
+        debugPrint('[VideoPlayerState] 回前台自动恢复播放');
+        play();
+      }
       // 回前台强制刷新一帧：iOS 切后台后渲染可能没跟上（画面灰/缺失），
       // 无论当前播放/暂停都同位置 seek 触发渲染（暂停时保持暂停态不变）。
       if (hasVideo && _position.inMilliseconds > 0) {

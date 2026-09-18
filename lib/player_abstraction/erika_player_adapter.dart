@@ -266,6 +266,19 @@ class _NipaplayErikaWindowOverlayVideoViewState
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // iOS 回前台后原生 overlay 视图可能已被系统回收，而 Flutter 侧矩形没变、
+    // 帧签名相同 -> 轮询早退从不重发，画面黑屏（音频/字幕仍在跑）。
+    // 强制清签名 + 重绑 surface + 强制发一帧。
+    if (state == AppLifecycleState.resumed && mounted) {
+      _isBound = false;
+      _lastFrameSignature = null;
+      _scheduleAttach();
+      _scheduleFrameUpdate(force: true);
+    }
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_captureWindowTarget()) {

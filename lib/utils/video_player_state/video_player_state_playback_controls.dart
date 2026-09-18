@@ -623,16 +623,24 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
 
         // 播放开始时提交观看记录到弹弹play
         _submitWatchHistoryToDandanplay();
-      }).catchError((e) {
+      }).catchError((e) async {
         debugPrint('[VideoPlayerState] playDirectly() 调用失败: $e');
-        // 尝试使用传统方法
+        // 内核在后台可能进入 idle（erika ErikaStatus 3）：play 无效，需重载 media 再播
+        try {
+          final kernel = player.getPlayerKernelName();
+          if (kernel.toLowerCase().contains('erika') && _currentVideoPath.isNotEmpty) {
+            debugPrint('[VideoPlayerState] erika idle 检测到，重载 media 恢复播放');
+            await player.retryCurrentMediaLoad();
+            await Future<void>.delayed(const Duration(milliseconds: 300));
+            await player.playDirectly();
+          }
+        } catch (reopenErr) {
+          debugPrint('[VideoPlayerState] 重载 media 失败: $reopenErr');
+        }
         player.state = PlaybackState.playing;
         _setStatus(PlayerStatus.playing, message: '开始播放');
-
-        // 播放开始时提交观看记录到弹弹play
         _submitWatchHistoryToDandanplay();
       });
-
       // <<< ADDED DEBUG LOG >>>
       debugPrint(
         '[VideoPlayerState] play() -> _status set to PlayerStatus.playing. Notifying listeners.',

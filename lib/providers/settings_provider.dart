@@ -150,6 +150,8 @@ class SettingsProvider with ChangeNotifier {
     // 已保存过设置的用户继续使用其现有值，仅影响首次默认值。
     _danmakuSupersample = _prefs.getDouble(SettingsKeys.danmakuSupersample) ??
         _defaultDanmakuSupersample();
+    debugPrint('[SettingsProvider] 弹幕超采样加载: ' +
+        (_prefs.getDouble(SettingsKeys.danmakuSupersample) ?? _defaultDanmakuSupersample()).toString());
     notifyListeners();
   }
 
@@ -313,6 +315,7 @@ class SettingsProvider with ChangeNotifier {
 
   Future<void> setDanmakuSupersample(double value) async {
     _danmakuSupersample = value;
+    debugPrint('[SettingsProvider] 弹幕超采样设置: $value');
     await _prefs.setDouble(SettingsKeys.danmakuSupersample, value);
     notifyListeners();
   }

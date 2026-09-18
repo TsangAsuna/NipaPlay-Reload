@@ -1955,7 +1955,11 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     _subtitlePosition = resolved;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_subtitlePositionKey, resolved);
+    // 叠层字幕位置在 Flutter UI 层，不碰内核 sub-margin/sub-pos（MediaKit 限制0~300且报错）
+    if (!shouldRenderCurrentExternalSubtitleInApp()) {
     await applySubtitleStylePreference();
+
+    }
     _refreshSubtitleLayout();
     _notifyListeners();
   }
@@ -1985,7 +1989,11 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     _subtitleMarginX = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_subtitleMarginXKey, value);
+    // 叠层字幕位置在 Flutter UI 层，不碰内核 sub-margin/sub-pos（MediaKit 限制0~300且报错）
+    if (!shouldRenderCurrentExternalSubtitleInApp()) {
     await applySubtitleStylePreference();
+
+    }
     _refreshSubtitleLayout();
     _notifyListeners();
   }
@@ -1995,7 +2003,11 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     _subtitleMarginY = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_subtitleMarginYKey, value);
+    // 叠层字幕位置在 Flutter UI 层，不碰内核 sub-margin/sub-pos（MediaKit 限制0~300且报错）
+    if (!shouldRenderCurrentExternalSubtitleInApp()) {
     await applySubtitleStylePreference();
+
+    }
     _refreshSubtitleLayout();
     _notifyListeners();
   }

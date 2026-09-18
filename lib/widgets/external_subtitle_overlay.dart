@@ -23,6 +23,7 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
   /// 锁定后位置不可拖动，锁键隐藏；点击字幕解锁
   bool _locked = false;
   bool _longPressMoved = false;  // 长按期间是否发生拖动
+  bool _panDragActive = false;  // Pan fallback: 长按未识别前移动也能拖
   double _dragStartPosition = 100.0;  // 长按起点字幕垂直位置
   double _dragStartMarginX = 0.0;    // 长按起点水平边距
   /// 字幕背景（功能区按钮切换；默认无背景）
@@ -164,6 +165,41 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                                       _locked = true;
                                       _boxVisible = false;
                                     });
+                                    videoState.setSubtitleEditBoxVisible(false);
+                                  }
+                                },
+                                onPanDown: (_) {
+                                  _panDragActive = false;
+                                },
+                                onPanUpdate: (details) {
+                                  // 长按已 accept（_longPressMoved 由 LongPress 路径管）则不重复处理
+                                  if (_longPressMoved) return;
+                                  if (!_boxVisible && !_panDragActive) {
+                                    // 首次移动：出框并记录起点
+                                    _panDragActive = true;
+                                    _dragStartPosition = videoState.subtitlePosition;
+                                    _dragStartMarginX = videoState.subtitleMarginX;
+                                    setState(() { _boxVisible = true; });
+                                  }
+                                  if (!_panDragActive) return;
+                                  final v = videoState;
+                                  _dragStartMarginX += details.delta.dx;
+                                  v.setSubtitleMarginX(
+                                    _dragStartMarginX.clamp(-500.0, 500.0),
+                                  );
+                                  final stageH = MediaQuery.of(context).size.height;
+                                  _dragStartPosition += details.delta.dy / stageH * 100;
+                                  v.setSubtitlePosition(
+                                    _dragStartPosition
+                                        .clamp(VideoPlayerState.minSubtitlePosition, VideoPlayerState.maxSubtitlePosition)
+                                        .toDouble(),
+                                  );
+                                },
+                                onPanEnd: (_) {
+                                  if (_panDragActive) {
+                                    _panDragActive = false;
+                                    videoState.setSubtitleDragActive(false);
+                                    setState(() { _locked = true; _boxVisible = false; });
                                     videoState.setSubtitleEditBoxVisible(false);
                                   }
                                 },

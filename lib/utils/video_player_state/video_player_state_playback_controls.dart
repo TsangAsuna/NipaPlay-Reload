@@ -628,7 +628,8 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
         // 内核在后台可能进入 idle（erika ErikaStatus 3）：play 无效，需重载 media 再播
         try {
           final kernel = player.getPlayerKernelName();
-          if (kernel.toLowerCase().contains('erika') && _currentVideoPath.isNotEmpty) {
+          if (kernel.toLowerCase().contains('erika') &&
+              _currentVideoPath != null && _currentVideoPath!.isNotEmpty) {
             debugPrint('[VideoPlayerState] erika idle 检测到，重载 media 恢复播放');
             await player.retryCurrentMediaLoad();
             await Future<void>.delayed(const Duration(milliseconds: 300));

@@ -899,9 +899,14 @@ class ErikaPlayerAdapter
       _lastNativeError = null;
       _externalSubtitleTrackIds.clear();
       _externalSubtitleGeneration++;
-      // 新媒体会话：丢弃上一个媒体的弹幕/外挂字幕缓存，停掉停滞看门狗。
+      // 新媒体会话：丢弃上一个媒体的弹幕/外挂字幕缓存，停掉停滞看门狗，
+      // 并复位活性信号（跨媒体累计会让“每媒体设防”与静默判定失真——
+      // 换集后新媒体起播缓冲超过静默阈值会被误判为停滞）。
       _playbackWatchdogTimer?.cancel();
       _stallRecoveryCount = 0;
+      _stallNudgeAttempted = false;
+      _positionEventCount = 0;
+      _lastNativePositionEventAt = null;
       _lastExternalSubtitlePath = null;
       _lastDanmakuJson = null;
       _lastDanmakuEnabled = null;

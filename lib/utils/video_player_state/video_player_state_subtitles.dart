@@ -195,6 +195,43 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
     return _subtitleManager.getCurrentSubtitleText();
   }
 
+  // ---- 多字幕分块渲染桥接：每条外挂字幕独立的时轴延迟/位置/边距 ----
+
+  /// 全部活跃的外挂字幕路径（有序，多挂时逐条叠加渲染）
+  List<String> get activeExternalSubtitlePaths =>
+      _subtitleManager.getAllActiveExternalSubtitlePaths();
+
+  /// 查询单条字幕在指定时间点的文本
+  String pathSubtitleTextAt(String path, int positionMs) =>
+      _subtitleManager.pathSubtitleTextAt(path, positionMs);
+
+  /// 某条字幕的时轴延迟（秒；正值延后，负值提前）
+  double pathSubtitleDelaySeconds(String path) =>
+      _subtitleManager.pathDelaySeconds(path);
+
+  void setPathSubtitleDelaySeconds(String path, double seconds) {
+    _subtitleManager.setPathDelaySeconds(path, seconds);
+    _notifyListeners();
+  }
+
+  /// 某条字幕的垂直位置（0=屏幕顶 100=屏幕底）
+  double pathSubtitlePosition(String path) =>
+      _subtitleManager.pathPosition(path);
+
+  void setPathSubtitlePosition(String path, double position) {
+    _subtitleManager.setPathPosition(path, position);
+    _notifyListeners();
+  }
+
+  /// 某条字幕的水平边距（逻辑像素）
+  double pathSubtitleMarginX(String path) =>
+      _subtitleManager.pathMarginX(path);
+
+  void setPathSubtitleMarginX(String path, double marginX) {
+    _subtitleManager.setPathMarginX(path, marginX);
+    _notifyListeners();
+  }
+
   // 桥接方法：判断当前外挂字幕是否使用应用内叠层渲染
   bool shouldRenderCurrentExternalSubtitleInApp() {
     return _subtitleManager.shouldRenderCurrentExternalSubtitleInApp();

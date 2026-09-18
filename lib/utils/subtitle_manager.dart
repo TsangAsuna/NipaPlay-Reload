@@ -91,6 +91,98 @@ class SubtitleManager extends ChangeNotifier {
   List<String> getAllActiveExternalSubtitlePaths() =>
       List.unmodifiable(_activeExternalSubtitlePaths);
 
+  // ---- 每条字幕独立的显示状态（时轴延迟/垂直位置/水平边距） ----
+  // 多字幕混挂（ASS+SRT/SRT+SRT）时逐条渲染，各条可独立调轴与摆位。
+  // 状态按字幕文件记忆（跨视频生效：同一字幕文件的时轴/摆位不变），
+  // 持久化在独立键 subtitle_display_<sha1(path)>，随激活写入/移除清理。
+  final Map<String, Map<String, double>> _pathDisplayState =
+      <String, Map<String, double>>{};
+
+  static String _pathDisplayStateKey(String path) =>
+      'subtitle_display_${sha1.convert(utf8.encode(path)).toString()}';
+
+  Map<String, double> _ensurePathDisplayState(String path) {
+    return _pathDisplayState.putIfAbsent(path, () => <String, double>{
+          'delay': 0.0,
+          'position': 90.0,
+          'marginX': 0.0,
+        });
+  }
+
+  /// 异步恢复某条字幕的显示状态（激活后调用；磁盘值优先于默认值）
+  Future<void> _loadPathDisplayState(String path) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_pathDisplayStateKey(path));
+      if (raw == null || raw.isEmpty) return;
+      final decoded = json.decode(raw);
+      if (decoded is! Map) return;
+      final state = _ensurePathDisplayState(path);
+      final delay = (decoded['delay'] as num?)?.toDouble();
+      final position = (decoded['position'] as num?)?.toDouble();
+      final marginX = (decoded['marginX'] as num?)?.toDouble();
+      if (delay != null) state['delay'] = delay;
+      if (position != null) state['position'] = position;
+      if (marginX != null) state['marginX'] = marginX;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('SubtitleManager: 恢复字幕显示状态失败: $e');
+    }
+  }
+
+  Future<void> _savePathDisplayState(String path) async {
+    try {
+      final state = _ensurePathDisplayState(path);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _pathDisplayStateKey(path),
+        json.encode(state),
+      );
+    } catch (e) {
+      debugPrint('SubtitleManager: 保存字幕显示状态失败: $e');
+    }
+  }
+
+  /// 某条字幕的时轴延迟（秒；正值延后，负值提前）
+  double pathDelaySeconds(String path) =>
+      _ensurePathDisplayState(path)['delay'] ?? 0.0;
+
+  void setPathDelaySeconds(String path, double seconds) {
+    final state = _ensurePathDisplayState(path);
+    if ((state['delay']! - seconds).abs() < 0.0001) return;
+    state['delay'] = seconds;
+    unawaited(_savePathDisplayState(path));
+    notifyListeners();
+  }
+
+  /// 某条字幕的垂直位置（0=屏幕顶 100=屏幕底）
+  double pathPosition(String path) =>
+      _ensurePathDisplayState(path)['position'] ?? 90.0;
+
+  void setPathPosition(String path, double position) {
+    final state = _ensurePathDisplayState(path);
+    state['position'] = position;
+    unawaited(_savePathDisplayState(path));
+    notifyListeners();
+  }
+
+  /// 某条字幕的水平边距（逻辑像素）
+  double pathMarginX(String path) =>
+      _ensurePathDisplayState(path)['marginX'] ?? 0.0;
+
+  void setPathMarginX(String path, double marginX) {
+    final state = _ensurePathDisplayState(path);
+    state['marginX'] = marginX;
+    unawaited(_savePathDisplayState(path));
+    notifyListeners();
+  }
+
+  /// 查询单条字幕在指定时间点的文本（多字幕分块渲染使用）
+  String pathSubtitleTextAt(String path, int positionMs) {
+    if (!_shouldRenderExternalSubtitleInApp(path)) return '';
+    return _textAtPath(path, positionMs);
+  }
+
   // 获取当前活跃的外部字幕文件路径
   String? getActiveExternalSubtitlePath() {
     // 检查是否是外部字幕
@@ -429,6 +521,7 @@ class SubtitleManager extends ChangeNotifier {
         _activeExternalSubtitlePaths
           ..clear()
           ..add(path);
+        unawaited(_loadPathDisplayState(path));
 
         // 更新轨道信息
         updateSubtitleTrackInfo('external_subtitle', {
@@ -459,6 +552,7 @@ class SubtitleManager extends ChangeNotifier {
         debugPrint('SubtitleManager: 外部字幕设置成功');
       } else if (path.isEmpty) {
         _activeExternalSubtitlePaths.clear();
+        _pathDisplayState.clear();
         _clearExternalSubtitleState();
         debugPrint('SubtitleManager: 外部字幕已清除');
       } else {
@@ -477,6 +571,7 @@ class SubtitleManager extends ChangeNotifier {
   Future<void> removeExternalSubtitleFromStack(String path) async {
     if (path.isEmpty) return;
     _activeExternalSubtitlePaths.remove(path);
+    _pathDisplayState.remove(path);
     if (_currentExternalSubtitlePath == path) {
       _currentExternalSubtitlePath = '';
     }
@@ -511,6 +606,7 @@ class SubtitleManager extends ChangeNotifier {
       return;
     }
     _activeExternalSubtitlePaths.add(path);
+    unawaited(_loadPathDisplayState(path));
     _currentExternalSubtitlePath = path;
     if (_shouldRenderExternalSubtitleInApp(path)) {
       _activateAppRenderedExternalSubtitle(path);

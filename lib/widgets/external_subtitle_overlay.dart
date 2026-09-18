@@ -19,9 +19,11 @@ class ExternalSubtitleOverlay extends StatefulWidget {
 
 class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
   /// 长按后显示编辑框（带锁定键）
-  bool _boxVisible = true;   // 常驻框：默认显示；锁定后消失，再次长按出现
+  /// 可见性以 VideoPlayerState 为准做初始化：叠层子树在自愈重开/进出
+  /// 播放页等场景会被整体重建，若用硬编码默认值，编辑框会"自己冒出来"。
+  late bool _boxVisible;   // 常驻框：锁定后消失，再次长按出现
   /// 锁定后位置不可拖动，锁键隐藏；点击字幕解锁
-  bool _locked = false;
+  late bool _locked;
   bool _longPressMoved = false;  // 长按期间是否发生拖动
   bool _panDragActive = false;  // Pan fallback: 长按未识别前移动也能拖
   double _dragStartPosition = 100.0;  // 长按起点字幕垂直位置
@@ -33,6 +35,15 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
   String _lastLoggedCueKey = '';
   int _lastSyncLogAtMs = 0;
   static const int _syncLogMinIntervalMs = 1000;
+
+  @override
+  void initState() {
+    super.initState();
+    final videoState =
+        Provider.of<VideoPlayerState>(context, listen: false);
+    _boxVisible = videoState.subtitleEditBoxVisible;
+    _locked = !_boxVisible;
+  }
 
   @override
   Widget build(BuildContext context) {

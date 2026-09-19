@@ -215,8 +215,11 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
               behavior: HitTestBehavior.opaque,
               onTapUp: (_) {
                 // 点击框内非按钮处 -> 收框
+                // onPanDown 无条件已置 dragActive=true，此处必须复位，
+                // 否则残留 true 会拦截播放器长按倍速（video_player_ui 653 行）。
                 setState(() => _editingPath = null);
                 videoState.setSubtitleEditBoxVisible(false);
+                videoState.setSubtitleDragActive(false);
               },
               onPanDown: (_) {
                 _panDragActive = true;

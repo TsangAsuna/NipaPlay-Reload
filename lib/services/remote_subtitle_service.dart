@@ -299,11 +299,22 @@ class RemoteSubtitleService {
     };
 
     final hash = sha1.convert(utf8.encode(cacheKey)).toString();
-    final target = File(p.join(cacheDir.path, '$hash$extension'));
+    // 缓存文件名用源文件名（sanitize 后），轨道列表显示名 = 源文件名而非 sha1；
+    // hash 写入同名 .cachekey 元文件，命中时校验，避免同名不同条目的旧缓存误用。
+    final safeBase =
+        p.basenameWithoutExtension(candidate.name)
+            .replaceAll(RegExp(r'[\/:*?"<>|]'), '_')
+            .trim();
+    final target = File(
+      p.join(cacheDir.path, '${safeBase.isEmpty ? hash : safeBase}$extension'),
+    );
+    final meta = File('${target.path}.cachekey');
 
     if (!forceRefresh && await target.exists()) {
       final size = await target.length();
-      if (size > 0) {
+      if (size > 0 &&
+          await meta.exists() &&
+          await meta.readAsString() == hash) {
         // 服务端声明了大小且与缓存不一致 -> 远程字幕可能已变化，尝试刷新
         final declared = candidate.fileSize;
         if (declared == null || declared == size) {
@@ -335,6 +346,11 @@ class RemoteSubtitleService {
         await target.delete();
       }
       await tmp.rename(target.path);
+      try {
+        await meta.writeAsString(hash, flush: true);
+      } catch (_) {
+        // meta 写入失败不影响本次挂载；下次会重新下载校验
+      }
       logPlayerEvent(
         'Subtitle',
         '远程字幕下载完成: ${candidate.name} -> ${target.path}',

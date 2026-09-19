@@ -389,30 +389,17 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
         lastIndex = _externalSubtitles.length - 1;
         loadedCount++;
       }
-      // 多挂：所有选中的 SRT/VTT 叠加激活；ASS/其他保持最后一项单挂
-      if (_externalSubtitles.isNotEmpty) {
-        var applied = false;
-        for (var i = 0; i < _externalSubtitles.length; i++) {
-          final sub = _externalSubtitles[i];
-          final subPath = sub['path'] as String?;
-          if (subPath == null || subPath.isEmpty) continue;
-          final ext = p.extension(subPath).toLowerCase();
-          if (ext == '.srt' || ext == '.vtt') {
-            await videoState.addExternalSubtitleToStack(subPath);
-            sub['isActive'] = true;
-            applied = true;
-          } else if (i == lastIndex) {
-            _applyExternalSubtitle(videoState, subPath, i);
-            applied = true;
-          }
-        }
-        if (!applied && lastIndex >= 0) {
-          _applyExternalSubtitle(
-              videoState,
-              _externalSubtitles[lastIndex]['path'] as String,
-              lastIndex);
-        }
+      // 多挂：本次选中的全部叠加激活（ASS/SRT 同等对待，逐条进栈），
+      // 不再对 ASS 单独 forceSet（那会清空整个叠层栈，导致先挂的字幕消失）
+      for (final candidate in selected) {
+        final cached = await RemoteSubtitleService.instance
+            .ensureSubtitleCached(candidate);
+        await videoState.addExternalSubtitleToStack(cached);
+        final idx =
+            _externalSubtitles.indexWhere((s) => s['path'] == cached);
+        if (idx >= 0) _externalSubtitles[idx]['isActive'] = true;
       }
+      if (mounted) setState(() {});
       logPlayerEvent(
         'Subtitle',
         '远程字幕挂载完成: $loadedCount 个，已应用叠层/内核轨',
@@ -443,13 +430,8 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
     if (index < 0 || index >= _externalSubtitles.length) return;
     final subPath = _externalSubtitles[index]['path'] as String?;
     if (subPath == null || subPath.isEmpty) return;
-    final ext = p.extension(subPath).toLowerCase();
-    if (ext == '.srt' || ext == '.vtt') {
-      await videoState.addExternalSubtitleToStack(subPath);
-      _externalSubtitles[index]['isActive'] = true;
-    } else {
-      _applyExternalSubtitle(videoState, subPath, index);
-    }
+    await videoState.addExternalSubtitleToStack(subPath);
+    _externalSubtitles[index]['isActive'] = true;
     if (mounted) setState(() {});
   }
 
@@ -811,36 +793,26 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
                     child: InkWell(
                       onTap: () async {
                         if (isActive) {
+                          // 已激活点击 = 移出叠加（保留在列表，随时可再点激活）
                           final filePath = subtitle['path'] as String;
                           await videoState.removeExternalSubtitle(filePath);
                           setState(() {
                             subtitle['isActive'] = false;
                           });
                           if (context.mounted) {
-                            BlurSnackBar.show(context, '已移除字幕');
+                            BlurSnackBar.show(context, '已取消该字幕');
                           }
                         } else {
                           final filePath = subtitle['path'] as String;
-                          var switched = false;
-                          await runMediaServerMenuSelection(
-                            MediaServerMenuSurface.nipaplaySubtitle,
-                            false,
-                            () async {
-                              _applyExternalSubtitle(
-                                videoState,
-                                filePath,
-                                index,
-                              );
-                              switched = true;
-                              await _saveExternalSubtitles(
-                                  videoState.currentVideoPath ?? '');
-                            },
-                            () async => false,
-                          );
-                          if (switched && context.mounted) {
+                          // 多选开关：加入叠加，不影响已激活的其他字幕
+                          await videoState.addExternalSubtitleToStack(filePath);
+                          setState(() {
+                            subtitle['isActive'] = true;
+                          });
+                          if (context.mounted) {
                             BlurSnackBar.show(
                               context,
-                              '已切换到字幕: $fileName',
+                              '已叠加字幕: $fileName',
                             );
                           }
                         }

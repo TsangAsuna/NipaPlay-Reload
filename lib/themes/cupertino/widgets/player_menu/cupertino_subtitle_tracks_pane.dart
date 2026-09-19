@@ -446,24 +446,24 @@ class _CupertinoSubtitleTracksPaneState
               ),
               onTap: () async {
                 if (isActive) {
-                  await _switchToEmbeddedSubtitle(
-                    -1,
-                    persistEmbyPreference: false,
-                  );
-                } else {
-                  await runMediaServerMenuSelection(
-                    MediaServerMenuSurface.cupertinoSubtitle,
-                    false,
-                    () => _applyExternalSubtitle(
-                      data['path'] as String,
-                      index,
-                    ),
-                    () async => false,
-                  );
+                  // 已激活点击 = 移出叠加（保留在列表，可再点激活）
+                  await _subtitleService.setExternalSubtitleActive(
+                      widget.videoState.currentVideoPath ?? '', index, false);
+                  await widget.videoState.removeExternalSubtitle(
+                      data['path'] as String);
+                  if (mounted) setState(() {});
+                  _showMessage('已取消该字幕');
+                  return;
                 }
+                // 多选开关：加入叠加，不影响已激活的其他字幕
+                await _subtitleService.setExternalSubtitleActive(
+                    widget.videoState.currentVideoPath ?? '', index, true);
+                await widget.videoState.addExternalSubtitleToStack(
+                    data['path'] as String);
                 if (mounted) setState(() {});
+                _showMessage('已叠加字幕');
               },
-            );
+                        );
           }).toList(),
         ),
       );

@@ -101,12 +101,30 @@ class SubtitleManager extends ChangeNotifier {
   static String _pathDisplayStateKey(String path) =>
       'subtitle_display_${sha1.convert(utf8.encode(path)).toString()}';
 
+  // 全局字幕位置/边距的当前值（由 VideoPlayerState 桥接层在滑块变化时
+  // 更新）：新激活的字幕块以此为初始位置，保证滑块对叠层立即生效。
+  double globalPositionSeed = 90.0;
+  double globalMarginSeed = 0.0;
+
   Map<String, double> _ensurePathDisplayState(String path) {
     return _pathDisplayState.putIfAbsent(path, () => <String, double>{
           'delay': 0.0,
-          'position': 90.0,
-          'marginX': 0.0,
+          'position': globalPositionSeed,
+          'marginX': globalMarginSeed,
         });
+  }
+
+  /// 全局滑块变化时同步所有已激活字幕块（滑块=全局控制；
+  /// 单块拖动=逐条微调，直至下次全局调整）。
+  void applyGlobalDisplayPosition(double position, double marginX) {
+    if (_activeExternalSubtitlePaths.isEmpty) return;
+    for (final path in _activeExternalSubtitlePaths) {
+      final state = _ensurePathDisplayState(path);
+      state['position'] = position;
+      state['marginX'] = marginX;
+      unawaited(_savePathDisplayState(path));
+    }
+    notifyListeners();
   }
 
   /// 异步恢复某条字幕的显示状态（激活后调用；磁盘值优先于默认值）
@@ -604,6 +622,15 @@ class SubtitleManager extends ChangeNotifier {
     }
     if (_activeExternalSubtitlePaths.contains(path)) {
       return;
+    }
+    // 多条叠加时默认位置自动错开 20（90/70/50...），避免互相完全重叠
+    if (!_pathDisplayState.containsKey(path)) {
+      final depth = _activeExternalSubtitlePaths.length;
+      _pathDisplayState[path] = <String, double>{
+        'delay': 0.0,
+        'position': (globalPositionSeed - 20 * depth).clamp(30.0, 100.0),
+        'marginX': globalMarginSeed,
+      };
     }
     _activeExternalSubtitlePaths.add(path);
     unawaited(_loadPathDisplayState(path));

@@ -394,7 +394,8 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
       for (final candidate in selected) {
         final cached = await RemoteSubtitleService.instance
             .ensureSubtitleCached(candidate);
-        await videoState.addExternalSubtitleToStack(cached);
+        await videoState.addExternalSubtitleToStack(cached,
+            displayName: candidate.name);
         final idx =
             _externalSubtitles.indexWhere((s) => s['path'] == cached);
         if (idx >= 0) _externalSubtitles[idx]['isActive'] = true;
@@ -805,7 +806,9 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
                         } else {
                           final filePath = subtitle['path'] as String;
                           // 多选开关：加入叠加，不影响已激活的其他字幕
-                          await videoState.addExternalSubtitleToStack(filePath);
+                          await videoState.addExternalSubtitleToStack(
+                              filePath,
+                              displayName: fileName);
                           setState(() {
                             subtitle['isActive'] = true;
                           });

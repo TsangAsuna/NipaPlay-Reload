@@ -428,7 +428,7 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '外挂字幕设置（${path.split('/').last}）',
+                    '外挂字幕设置（${videoState.externalSubtitleDisplayName(path)}）',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(

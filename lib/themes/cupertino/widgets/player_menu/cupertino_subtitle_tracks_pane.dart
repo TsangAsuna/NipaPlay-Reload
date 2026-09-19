@@ -459,7 +459,8 @@ class _CupertinoSubtitleTracksPaneState
                 await _subtitleService.setExternalSubtitleActive(
                     widget.videoState.currentVideoPath ?? '', index, true);
                 await widget.videoState.addExternalSubtitleToStack(
-                    data['path'] as String);
+                    data['path'] as String,
+                    displayName: data['name'] as String?);
                 if (mounted) setState(() {});
                 _showMessage('已叠加字幕');
               },

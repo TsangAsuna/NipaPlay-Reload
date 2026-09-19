@@ -173,9 +173,11 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
     await _subtitleManager.preloadSubtitleFile(path);
   }
 
-  // 桥接方法：叠加挂载外部字幕到堆栈（多挂 SRT）
-  Future<void> addExternalSubtitleToStack(String path) async {
-    await _subtitleManager.addExternalSubtitleToStack(path);
+  // 桥接方法：叠加挂载外部字幕到堆栈（多挂，可带显示名）
+  Future<void> addExternalSubtitleToStack(String path,
+      {String? displayName}) async {
+    await _subtitleManager.addExternalSubtitleToStack(path,
+        displayName: displayName);
     _notifyListeners();
   }
 
@@ -204,6 +206,10 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
   /// 查询单条字幕在指定时间点的文本
   String pathSubtitleTextAt(String path, int positionMs) =>
       _subtitleManager.pathSubtitleTextAt(path, positionMs);
+
+  /// 某条字幕的显示名（无登记时回退文件名）
+  String externalSubtitleDisplayName(String path) =>
+      _subtitleManager.displayNameForPath(path);
 
   /// 某条字幕的时轴延迟（秒；正值延后，负值提前）
   double pathSubtitleDelaySeconds(String path) =>

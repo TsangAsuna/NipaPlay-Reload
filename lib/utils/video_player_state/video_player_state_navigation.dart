@@ -915,17 +915,23 @@ extension VideoPlayerStateNavigation on VideoPlayerState {
             // 1-2 秒"）。策略：非 seek 状态下 position 相对平滑时钟前跳
             // 超过 1.5s 视为可疑尖刺，连续 3 个采样（约 50ms/帧）仍保持
             // 才接受为真实跳变；否则用平滑时钟外推值替代本次采样。
-            final spikeGuardExpected = _playbackTimeMs.value + 1500.0;
+            final spikeGuardExpected = _playbackTimeMs.value + 2500.0;
             if (_seekTargetMs == null && playerMs > spikeGuardExpected) {
               _rawSpikeStreak += 1;
-              if (_rawSpikeStreak < 3) {
+              if (_rawSpikeStreak < 4) {
+                // 只改写平滑时钟锚定用的 playerMs；
+                // playerPosition（结束检测/章节/进度条）保持真实值。
                 final extrapolated = (_smoothAnchorMs +
                         (currentElapsedUs - _smoothAnchorElapsedUs) /
                             1000.0 *
                             effectivePlaybackRate)
                     .clamp(0.0, _duration.inMilliseconds.toDouble());
                 playerMs = extrapolated;
-                playerPosition = playerMs.round();
+                if (!kReleaseMode || nowTime - _lastDiagDriftSnapMs >= 2000) {
+                  debugPrint('[MDK-SPIKE-GUARD] 前跳尖刺被忽略: '
+                      'raw=${playerPosition}ms using=${playerMs.toStringAsFixed(0)}ms '
+                      'streak=$_rawSpikeStreak');
+                }
               } else {
                 _rawSpikeStreak = 0;
               }
@@ -1394,6 +1400,10 @@ extension VideoPlayerStateNavigation on VideoPlayerState {
             }
 
             if (reachedExactEnd || reachedMdkStalledEnd) {
+              debugPrint('[Player] EOF 检测触发: kernel=${player.getPlayerKernelName()} '
+                  'remaining=${remainingMs}ms exact=$reachedExactEnd '
+                  'mdkStalled=$reachedMdkStalledEnd pos=$playerPosition '
+                  'duration=$playerDuration');
               player.state = PlaybackState.paused;
               _setStatus(PlayerStatus.paused, message: '播放结束');
               if (_currentVideoPath != null) {
@@ -1422,6 +1432,20 @@ extension VideoPlayerStateNavigation on VideoPlayerState {
                 // 根据用户设置处理播放结束行为
                 await _handlePlaybackEndAction();
               }
+            }
+
+            // 播放停滞诊断：状态为 playing 但真实位置 3s 无推进
+            final posForStallDiag = _position.inMilliseconds;
+            if (posForStallDiag == _lastStallDiagPositionMs) {
+              if (nowTime - _lastStallDiagAtMs >= 3000 &&
+                  nowTime - _lastStallDiagLoggedAtMs >= 5000) {
+                _lastStallDiagLoggedAtMs = nowTime;
+                debugPrint('[Player] 位置停滞诊断: status=playing 但位置 3s 未推进 '
+                    'pos=${posForStallDiag}ms kernel=${player.getPlayerKernelName()}');
+              }
+            } else {
+              _lastStallDiagPositionMs = posForStallDiag;
+              _lastStallDiagAtMs = nowTime;
             }
 
             if (shouldUiNotify) {

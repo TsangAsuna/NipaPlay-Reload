@@ -388,6 +388,9 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   int _rawSpikeStreak = 0;
   int _lastElapsedUs = 0; // 最近一次 Ticker elapsed（微秒），供 seek 时使用
   int _lastDiagFrameSkipTimeMs = 0; // [NEXT-DIAG] FRAME SKIP 日志节流：上次输出时间（ms）
+  int _lastStallDiagPositionMs = -1; // [停滞诊断] 上次真实位置
+  int _lastStallDiagAtMs = 0; // [停滞诊断] 位置变化时间
+  int _lastStallDiagLoggedAtMs = 0; // [停滞诊断] 上次打点时间
   int _diagBaselineFrameUs = 0; // [NEXT-DIAG] 自适应帧间隔基线（取最小帧间隔）
   int _diagFrameSampleCount = 0; // [NEXT-DIAG] 基线采样帧数
   int _lastDiagRoundTimeMs = 0; // [DRIFT-ROUND-DIAG] 根因A诊断：round舍入误差日志节流

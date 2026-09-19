@@ -1374,7 +1374,17 @@ extension VideoPlayerStateNavigation on VideoPlayerState {
             // position 也可能停在容器 duration 前数百毫秒，因此额外识别
             // “已接近末尾且位置持续停滞”，避免单纯扩大阈值而截断片尾。
             final remainingMs = playerDuration - playerPosition;
-            final reachedExactEnd = remainingMs <= 100;
+            // [MDK-EOF-GUARD] duration 无效（流媒体未就绪/为 0）时 remaining 恒为负，
+            // 不能判定结束；且需连续 2 个采样（约 100ms）确认，防 position 尖刺误杀。
+            var reachedExactEnd = playerDuration > 0 &&
+                remainingMs >= 0 &&
+                remainingMs <= 100;
+            if (reachedExactEnd) {
+              _exactEndStreak++;
+              if (_exactEndStreak < 2) reachedExactEnd = false;
+            } else {
+              _exactEndStreak = 0;
+            }
             var reachedMdkStalledEnd = false;
             if (player.getPlayerKernelName() == 'MDK' &&
                 remainingMs >= 0 &&

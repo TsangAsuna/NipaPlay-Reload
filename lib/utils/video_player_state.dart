@@ -386,6 +386,8 @@ class VideoPlayerState extends ChangeNotifier implements WindowListener {
   // [MDK-SPIKE-GUARD] MDK 缓冲抖动时 position 会瞬时前跳数秒又回落，
   // 连续采样计数：<3 视为尖刺拒绝追锚，>=3 视为真实跳变接受。
   int _rawSpikeStreak = 0;
+// [MDK-EOF-GUARD] 连续采样确认片尾，防 position 尖刺/无效 duration 误杀播放
+int _exactEndStreak = 0;
   int _lastElapsedUs = 0; // 最近一次 Ticker elapsed（微秒），供 seek 时使用
   int _lastDiagFrameSkipTimeMs = 0; // [NEXT-DIAG] FRAME SKIP 日志节流：上次输出时间（ms）
   int _lastStallDiagPositionMs = -1; // [停滞诊断] 上次真实位置

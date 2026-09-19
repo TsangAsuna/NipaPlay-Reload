@@ -77,9 +77,8 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
     }
 
     final isEditingThis = _editingPath == path;
-    return IgnorePointer(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
           final width = constraints.maxWidth.isFinite
               ? constraints.maxWidth
               : MediaQuery.of(context).size.width;
@@ -383,8 +382,7 @@ class _ExternalSubtitleOverlayState extends State<ExternalSubtitleOverlay> {
             ),
           );
         },
-      ),
-    );
+      );
   }
 
   /// 长按/双指/设置钮弹出的字幕设置面板（按字幕路径独立调时轴延迟）

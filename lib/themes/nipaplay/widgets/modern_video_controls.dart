@@ -131,6 +131,7 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
     bool useAnimatedSwitcher = false,
     bool useCustomAnimation = false,
     bool enabled = true,
+    bool enableTooltip = true,
   }) {
     Widget iconWidget = icon;
     if (useAnimatedSwitcher) {
@@ -163,6 +164,39 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
       );
     }
 
+    // enableTooltip=false 时完全不包 TooltipBubble：按钮自身已显示文字
+    //（如画面比例按钮），再弹一层悬浮说明只会长长一条横线。
+    final Widget button = KeyboardActivatable(
+      enabled: enabled,
+      onActivate: onTap,
+      onFocusChange: onHover,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: enabled ? (_) => onPressed(true) : null,
+        onTapUp: enabled ? (_) => onPressed(false) : null,
+        onTapCancel: enabled ? () => onPressed(false) : null,
+        onTap: enabled ? onTap : null,
+        child: BounceHoverScale(
+          isHovered: enabled && isHovered,
+          isPressed: enabled && isPressed,
+          child: ControlIconShadow(child: iconWidget),
+        ),
+      ),
+    );
+
+    if (!enableTooltip) {
+      return MouseRegion(
+        cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        onEnter: (_) {
+          if (enabled) {
+            onHover(true);
+          }
+        },
+        onExit: (_) => onHover(false),
+        child: button,
+      );
+    }
+
     return TooltipBubble(
       text: tooltip,
       showOnTop: true,
@@ -174,23 +208,7 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
           }
         },
         onExit: (_) => onHover(false),
-        child: KeyboardActivatable(
-          enabled: enabled,
-          onActivate: onTap,
-          onFocusChange: onHover,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTapDown: enabled ? (_) => onPressed(true) : null,
-            onTapUp: enabled ? (_) => onPressed(false) : null,
-            onTapCancel: enabled ? () => onPressed(false) : null,
-            onTap: enabled ? onTap : null,
-            child: BounceHoverScale(
-              isHovered: enabled && isHovered,
-              isPressed: enabled && isPressed,
-              child: ControlIconShadow(child: iconWidget),
-            ),
-          ),
-        ),
+        child: button,
       ),
     );
   }
@@ -377,7 +395,6 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
       },
       child: Container(
         height: _kAspectMenuItemHeight,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
           border: isLast
               ? null
@@ -388,34 +405,21 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
                   ),
                 ),
         ),
-        child: Row(
-          children: [
-            if (selected) ...[
-              Icon(
-                Icons.check,
-                size: 14,
-                color: menuColors.selectedForeground,
-              ),
-              const SizedBox(width: 6),
-            ] else
-              const SizedBox(width: 20),
-            Expanded(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: AlignmentDirectional.centerStart,
-                child: Text(
-                  _aspectModeLabel(mode),
-                  maxLines: 1,
-                  style: TextStyle(
-                    color: selected
-                        ? menuColors.selectedForeground
-                        : menuColors.foreground,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
+        // 无勾选标记，文字直接居中；选中态用主题色区分。
+        alignment: Alignment.center,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            _aspectModeLabel(mode),
+            maxLines: 1,
+            style: TextStyle(
+              color: selected
+                  ? menuColors.selectedForeground
+                  : menuColors.foreground,
+              fontSize: 12,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1067,35 +1071,20 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
                                         .isFeatureEnabled)
                                       const SizedBox(width: 12),
 
-                                    // 画面比例按钮：文字按钮显示当前模式，弹出菜单与按钮等宽，
-                                    // 菜单箭头指向按钮中心（与设置菜单同用 ArrowMenuContainer 方案）。
+                                    // 画面比例按钮：图标按钮（与其他控制键一致），点开
+                                    // 自绘菜单。菜单锚定在按钮正上方、箭头指向按钮中心，
+                                    // 菜单宽度固定 64。
                                     // 不用 PopupMenuButton：它的水平定位是「就近对齐」，菜单必然
-                                    // 比窄按钮多出一截向外伸展，无法实现菜单宽度 == 按钮宽度。
+                                    // 比窄按钮多出一截向外伸展，无法实现菜单贴按钮。
                                     Builder(
                                       builder: (buttonContext) {
                                         return SizedBox(
                                           key: _aspectButtonKey,
                                           child: _buildControlButton(
-                                            icon: Container(
-                                              width: _kAspectMenuWidth,
-                                              height: 24,
-                                              alignment: Alignment.center,
-                                              child: FittedBox(
-                                                fit: BoxFit.scaleDown,
-                                                child: Padding(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(horizontal: 6),
-                                                  child: Text(
-                                                    _aspectModeLabel(videoState
-                                                        .videoAspectMode),
-                                                    maxLines: 1,
-                                                    style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontSize: 12,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
+                                            icon: const Icon(
+                                              Icons.aspect_ratio,
+                                              color: Colors.white,
+                                              size: 24,
                                             ),
                                             onTap: () =>
                                                 _toggleAspectMenu(buttonContext),

@@ -5,6 +5,7 @@ import './abstract_player.dart';
 import './player_enums.dart';
 import './player_data_models.dart';
 import 'dart:async';
+import 'package:nipaplay/utils/player_kernel_manager.dart';
 import 'package:nipaplay/utils/subtitle_font_loader.dart';
 
 @visibleForTesting

@@ -530,6 +530,21 @@ class MdkPlayerAdapter implements AbstractPlayer, AsyncDisposablePlayer {
     }
     PlayerKernelManager.traceHotSwapStage('mdk teardown: releaseTexture done');
     await Future<void>.delayed(const Duration(milliseconds: 50));
+    // ← 卡死点（iPad 实测 freeze 于 native delete）：fvp dispose() 只做
+    // state=stopped（停播放循环），并不卸载媒体——VT 硬解/解复用线程仍
+    // 活跃，mdkPlayerAPI_delete 需要 join 这些线程而永久阻塞主 isolate。
+    // 先 setMedia("") 卸载媒体，让解码管线先行收敛拆除，delete 时无线程
+    // 可 join 即可快速返回。
+    PlayerKernelManager.traceHotSwapStage('mdk teardown: unload media begin');
+    try {
+      if (_mdkPlayer.media.isNotEmpty) {
+        _mdkPlayer.setMedia('', mdk.MediaType.video);
+      }
+    } catch (e) {
+      debugPrint('MDK: dispose 前卸载媒体失败: $e');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    PlayerKernelManager.traceHotSwapStage('mdk teardown: unload media done');
     // ← 历史卡死点 2：mdkPlayerAPI_delete（同步 FFI）
     PlayerKernelManager.traceHotSwapStage('mdk teardown: native delete begin');
     dispose();

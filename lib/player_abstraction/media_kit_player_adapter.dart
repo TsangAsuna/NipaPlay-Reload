@@ -1042,6 +1042,9 @@ class MediaKitPlayerAdapter
         //debugPrint('[MediaKit] 视频开始播放，检查视频尺寸');
         // 延迟一点时间确保视频已经真正开始播放
         Future.delayed(const Duration(milliseconds: 500), () {
+          // 热切换/退出后原生 player 已销毁：不能再读 _player.state，
+          // 否则触发 "[Player] has been disposed" 断言（debug）/ 释放后访问（release）
+          if (_isDisposed) return;
           if (_player.state.width != null &&
               _player.state.height != null &&
               _player.state.width! > 0 &&
@@ -2307,6 +2310,10 @@ class MediaKitPlayerAdapter
 
     // 设置mpv底层video-aspect属性，确保保持原始宽高比
     Future.delayed(const Duration(milliseconds: 500), () {
+      // 热切换/退出后原生 player 已销毁：延迟回调不能再访问 platform，
+      // 否则触发 "[Player] has been disposed" 断言（debug，实测热切换复现）
+      // 或释放后访问原生对象（release）。与下方 track-info 延迟块同样加守卫。
+      if (_isDisposed) return;
       try {
         final dynamic platform = _player.platform;
         if (platform != null && platform.setProperty != null) {
@@ -2316,6 +2323,7 @@ class MediaKitPlayerAdapter
 
           // 延迟检查设置是否生效
           Future.delayed(const Duration(milliseconds: 500), () async {
+            if (_isDisposed) return;
             try {
               var videoAspect = platform.getProperty('video-aspect');
               if (videoAspect is Future) {

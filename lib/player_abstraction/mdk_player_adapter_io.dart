@@ -5,6 +5,7 @@ import './abstract_player.dart';
 import './player_enums.dart';
 import './player_data_models.dart';
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:nipaplay/utils/player_kernel_manager.dart';
 import 'package:nipaplay/utils/subtitle_font_loader.dart';
 
@@ -203,6 +204,10 @@ class MdkPlayerAdapter implements AbstractPlayer, AsyncDisposablePlayer {
   // disposeAsync，必须合并为同一次 teardown，杜绝 double mdkPlayerAPI_delete。
   bool _isDisposed = false;
   Future<void>? _disposeAsyncFuture;
+  // iOS 上播放过媒体则跳过原生销毁（泄露兜底）：mdkPlayerAPI_delete 的
+  // join 解码/渲染线程在 iPad 15.1 实测会永久阻塞主 isolate。空闲切换
+  // （从未加载媒体）仍走正常销毁（已验证安全）。
+  bool _hadLoadedMedia = false;
 
   MdkPlayerAdapter({String? httpProxy})
       : _httpProxy = (httpProxy ?? '').trim() {
@@ -462,6 +467,9 @@ class MdkPlayerAdapter implements AbstractPlayer, AsyncDisposablePlayer {
         _internalAudioTrackCount = 0;
       }
     }
+    if (path.isNotEmpty) {
+      _hadLoadedMedia = true;
+    }
     _mdkPlayer.setMedia(path, _fromPlayerMediaType(type));
   }
 
@@ -469,6 +477,9 @@ class MdkPlayerAdapter implements AbstractPlayer, AsyncDisposablePlayer {
   Future<void> prepare() async {
     try {
       _mdkPlayer.prepare();
+      if (_mdkPlayer.media.isNotEmpty) {
+        _hadLoadedMedia = true;
+      }
       // prepare后重新应用播放速度，确保设置生效
       if (_playbackRate != 1.0) {
         _mdkPlayer.playbackRate = _playbackRate;
@@ -490,6 +501,17 @@ class MdkPlayerAdapter implements AbstractPlayer, AsyncDisposablePlayer {
       return;
     }
     _isDisposed = true;
+    // iOS 播放过媒体后，mdkPlayerAPI_delete 会 join 解码/渲染线程并永久
+    // 阻塞主 isolate（iPad 15.1 实测 freeze 于 native delete；先 state=
+    // stopped + setMedia("") 卸载媒体也不解决）。卸载后管线已停：跳过
+    // 原生销毁，仅泄露一个已停止的 Player 壳（内存滞留换切换不冻结）。
+    // 空闲态（从未加载媒体）仍正常销毁。
+    if (Platform.isIOS && _hadLoadedMedia) {
+      PlayerKernelManager.traceHotSwapStage(
+          'mdk dispose: iOS 跳过原生销毁（泄露兜底，避免 mdkPlayerAPI_delete 冻结）');
+      debugPrint('MDK: iOS 播放过媒体，跳过原生销毁（泄露兜底）');
+      return;
+    }
     _mdkPlayer.dispose();
   }
 

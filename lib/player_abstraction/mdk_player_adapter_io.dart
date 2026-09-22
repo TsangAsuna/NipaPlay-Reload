@@ -355,6 +355,12 @@ class MdkPlayerAdapter implements AbstractPlayer, AsyncDisposablePlayer {
   String get media => _mdkPlayer.media;
   @override
   set media(String value) {
+    if (value.isNotEmpty) {
+      // 主视频是通过 media setter 打开的(video_player_state_player_setup:
+      // player.media = playUrl)，不是 setMedia()——这里必须同步标记，
+      // 否则热切换 dispose 的“跳过原生销毁”兜底永不触发(iPad 实测仍卡死)。
+      _hadLoadedMedia = true;
+    }
     if (value.isNotEmpty && _mdkPlayer.media != value) {
       _activeVideoDecoder = null;
       _activeAudioDecoder = null;
@@ -366,9 +372,23 @@ class MdkPlayerAdapter implements AbstractPlayer, AsyncDisposablePlayer {
           ? List<String>.from(_audioDecoders)
           : List<String>.from(_mdkPlayer.audioDecoders);
 
-      try {
-        _mdkPlayer.dispose();
-      } catch (e) {}
+      // 换媒体会重建内核实例：若旧实例已加载媒体，iOS/Windows 上的
+      // mdkPlayerAPI_delete 同样会 join 解码/渲染线程永久阻塞
+      // (与热切换卡死同根因，切集时也会触发)。先卸载媒体管线，
+      // 再跳过原生销毁(泄露旧实例壳，占内存换不冻结)，然后新建。
+      if ((Platform.isIOS || Platform.isWindows) && _hadLoadedMedia) {
+        try {
+          if (_mdkPlayer.media.isNotEmpty) {
+            _mdkPlayer.setMedia('', mdk.MediaType.video);
+          }
+        } catch (e) {}
+        PlayerKernelManager.traceHotSwapStage(
+            'mdk media-swap: iOS/Windows 跳过旧实例原生销毁(泄露兜底)');
+      } else {
+        try {
+          _mdkPlayer.dispose();
+        } catch (e) {}
+      }
 
       _mdkPlayer = mdk.Player();
       _attachMdkEventListeners();
@@ -501,15 +521,15 @@ class MdkPlayerAdapter implements AbstractPlayer, AsyncDisposablePlayer {
       return;
     }
     _isDisposed = true;
-    // iOS 播放过媒体后，mdkPlayerAPI_delete 会 join 解码/渲染线程并永久
-    // 阻塞主 isolate（iPad 15.1 实测 freeze 于 native delete；先 state=
-    // stopped + setMedia("") 卸载媒体也不解决）。卸载后管线已停：跳过
-    // 原生销毁，仅泄露一个已停止的 Player 壳（内存滞留换切换不冻结）。
-    // 空闲态（从未加载媒体）仍正常销毁。
-    if (Platform.isIOS && _hadLoadedMedia) {
+    // iOS/Windows 播放过媒体后，mdkPlayerAPI_delete 会 join 解码/渲染线程并
+    // 永久阻塞主 isolate（iPad 15.1 实测 freeze 于 native delete；先 state=
+    // stopped + setMedia("") 卸载媒体也不解决，Windows 同样卡死但难触发）。
+    // 卸载后管线已停：跳过原生销毁，仅泄露一个已停止的 Player 壳
+    // （内存滞留换切换不冻结）。空闲态（从未加载媒体）仍正常销毁。
+    if ((Platform.isIOS || Platform.isWindows) && _hadLoadedMedia) {
       PlayerKernelManager.traceHotSwapStage(
-          'mdk dispose: iOS 跳过原生销毁（泄露兜底，避免 mdkPlayerAPI_delete 冻结）');
-      debugPrint('MDK: iOS 播放过媒体，跳过原生销毁（泄露兜底）');
+          'mdk dispose: iOS/Windows 跳过原生销毁（泄露兜底，避免 mdkPlayerAPI_delete 冻结）');
+      debugPrint('MDK: iOS/Windows 播放过媒体，跳过原生销毁（泄露兜底）');
       return;
     }
     _mdkPlayer.dispose();

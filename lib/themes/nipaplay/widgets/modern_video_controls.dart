@@ -43,6 +43,7 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
   final GlobalKey _settingsButtonKey = GlobalKey();
   final GlobalKey _progressBarKey = GlobalKey();
   final GlobalKey _aspectMenuKey = GlobalKey();
+  static const double _aspectMenuWidth = 176;
   bool _isRewindPressed = false;
   bool _isForwardPressed = false;
   bool _isPlayPressed = false;
@@ -357,14 +358,28 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
       }
     }
 
+    // PiLiPlus 式下拉定位：面板左缘对齐按钮左缘、贴按钮下方，避免
+    // BaseSettingsMenu 默认“水平居中于锚点”导致小按钮两侧悬空。
+    final Rect? dropdownAnchor = anchorRect == null
+        ? null
+        : Rect.fromLTWH(
+            anchorRect.left + (_aspectMenuWidth / 2),
+            anchorRect.top,
+            0,
+            anchorRect.height,
+          );
+
     if (anchorRect != null &&
         DesktopMultiWindow.isSecondaryWindow(buttonContext)) {
       final popup = DesktopTransientOverlay.showPopup(
         context: buttonContext,
         anchorRect: anchorRect,
-        size: const Size(248, 480),
+        size: const Size(_aspectMenuWidth, 480),
         placement: DesktopTransientWindowPlacement.above,
-        contentBuilder: (_, close) => AspectRatioMenu(onClose: close),
+        contentBuilder: (_, close) => AspectRatioMenu(
+          standaloneWindow: true,
+          onClose: close,
+        ),
         onClosed: () {
           _aspectPopup = null;
           videoState.setControlsVisibilityLocked(false);
@@ -378,7 +393,7 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
 
     _aspectOverlay = OverlayEntry(
       builder: (context) => AspectRatioMenu(
-        anchorRect: anchorRect,
+        anchorRect: dropdownAnchor,
         standaloneWindow: false,
         onClose: () {
           videoState.setControlsVisibilityLocked(false);

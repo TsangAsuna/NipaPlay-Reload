@@ -23,7 +23,7 @@ class AspectRatioMenu extends StatelessWidget {
   final Rect? anchorRect;
   final bool standaloneWindow;
 
-  static const double _menuWidth = 248;
+  static const double _menuWidth = 176;
   static const double _menuRightOffset = 14;
   static const double _menuHeight = 480;
 
@@ -76,7 +76,8 @@ class AspectRatioMenu extends StatelessWidget {
       showHeader: true,
       lockControlsVisible: true,
       anchorRect: anchorRect,
-      showPointer: anchorRect != null,
+      // PiLiPlus 式紧凑下拉：不画指针箭头，面板直接贴按钮下方
+      showPointer: false,
       height: _menuHeight,
       requestClose: () async => onClose(),
       standaloneWindow: standaloneWindow,

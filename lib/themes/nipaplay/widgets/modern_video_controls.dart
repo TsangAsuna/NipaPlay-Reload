@@ -43,6 +43,9 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
   final GlobalKey _settingsButtonKey = GlobalKey();
   final GlobalKey _progressBarKey = GlobalKey();
   final GlobalKey _aspectMenuKey = GlobalKey();
+  // 画面比例下拉的锚定对（CompositedTransformTarget 在按钮上，
+  // AspectRatioMenu 里用 Follower 跟随，变换自适应不会漂移）。
+  final LayerLink _aspectLayerLink = LayerLink();
   bool _isRewindPressed = false;
   bool _isForwardPressed = false;
   bool _isPlayPressed = false;
@@ -378,10 +381,23 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
       }
     }
 
+    // PiLiPlus 式下拉偏移：贴按钮下方（空间不足时贴上方），左缘与按钮齐平。
+    final Offset panelOffset;
+    if (anchorRect == null) {
+      panelOffset = const Offset(0, 0);
+    } else {
+      final screenSize = MediaQuery.of(buttonContext).size;
+      final showAbove =
+          anchorRect.top >= screenSize.height - anchorRect.bottom;
+      panelOffset = showAbove
+          ? Offset(0, -(AspectRatioMenu.menuHeight - anchorRect.height - 4))
+          : Offset(0, anchorRect.height + 4);
+    }
+
     _aspectOverlay = OverlayEntry(
       builder: (context) => AspectRatioMenu(
-        anchorKey: _aspectMenuKey,
-        anchorRect: anchorRect,
+        layerLink: _aspectLayerLink,
+        panelOffset: panelOffset,
         standaloneWindow: false,
         onClose: () {
           videoState.setControlsVisibilityLocked(false);
@@ -889,27 +905,36 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
                                       // 画面比例按钮（适应/填充/拉伸/16:9/4:3）——沿用 NipaPlay 设置/播放列表的锚定菜单样式
                                       Builder(
                                         builder: (buttonContext) {
-                                          return SizedBox(
-                                            key: _aspectMenuKey,
-                                            child: _buildControlButton(
-                                              icon: const Icon(
-                                                Icons.aspect_ratio,
-                                                color: Colors.white,
-                                                size: 24,
+                                          return CompositedTransformTarget(
+                                            link: _aspectLayerLink,
+                                            child: SizedBox(
+                                              key: _aspectMenuKey,
+                                              child: _buildControlButton(
+                                                icon: const Icon(
+                                                  Icons.aspect_ratio,
+                                                  color: Colors.white,
+                                                  size: 24,
+                                                ),
+                                                onTap: () =>
+                                                    _showAspectMenu(buttonContext),
+                                                isPressed: _isAspectModePressed,
+                                                isHovered: _isAspectModeHovered,
+                                                onHover: (value) => setState(
+                                                    () => _isAspectModeHovered =
+                                                        value),
+                                                onPressed: (value) =>
+                                                    setState(() =>
+                                                        _isAspectModePressed =
+                                                            value),
+                                                tooltip:
+                                                    '画面比例（适应/填充/拉伸/16:9/4:3）',
                                               ),
-                                              onTap: () => _showAspectMenu(buttonContext),
-                                              isPressed: _isAspectModePressed,
-                                              isHovered: _isAspectModeHovered,
-                                              onHover: (value) => setState(() => _isAspectModeHovered = value),
-                                              onPressed: (value) => setState(() => _isAspectModePressed = value),
-                                              tooltip: '画面比例（适应/填充/拉伸/16:9/4:3）',
                                             ),
                                           );
                                         },
                                       ),
 
                                     const SizedBox(width: 8),
-
                                     // 弹幕开关按钮
                                     _buildControlButton(
                                       icon: _DanmakuToggleIcon(

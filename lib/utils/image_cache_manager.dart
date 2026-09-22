@@ -42,6 +42,13 @@ class ImageCacheManager {
   /// 当前内存预算，测试可覆盖。
   static int maxBytes = _defaultMaxBytes;
 
+  /// 生命周期代际：缓存里的句柄被主动释放、或 App 回到前台时自增。
+  ///
+  /// [CachedNetworkImageWidget] 监听它。收到通知时看当前生命周期：
+  /// 不在前台，说明自己手里的句柄已经被释放，必须同步放下引用，否则回前台
+  /// 会画出空白；已回到前台，则重新加载一次（磁盘缓存兜底，不产生网络请求）。
+  final ValueNotifier<int> lifecycleGeneration = ValueNotifier<int>(0);
+
   static const Duration _maxCacheAge = Duration(minutes: 10); // 最大缓存时间
   static const Duration _evictionProtectionWindow = Duration(seconds: 2);
   static const Duration _diskCleanupInterval = Duration(hours: 12);
@@ -113,6 +120,19 @@ class ImageCacheManager {
       _lastAccessed[cacheKey] = DateTime.now();
     }
     return cachedImage;
+  }
+
+  /// 标记某张图片"此刻正在被显示"。
+  ///
+  /// 由 [CachedNetworkImageWidget] 在 build 时调用。LRU 淘汰只看
+  /// [_lastAccessed]，而它只在缓存命中或新存入时更新 —— 静止显示在屏幕上的
+  /// 图片不会再走命中路径，于是会慢慢变成"最久未访问"并被淘汰。
+  /// 每帧标记一次，"看得见的"就永远比"滚出去的"新。
+  void touch(String url, {int? targetWidth, int? targetHeight}) {
+    final cacheKey = _getCacheKeyWithDimensions(url, targetWidth, targetHeight);
+    if (_lastAccessed.containsKey(cacheKey)) {
+      _lastAccessed[cacheKey] = DateTime.now();
+    }
   }
 
   Future<ui.Image> loadImage(
@@ -234,7 +254,7 @@ class ImageCacheManager {
     _lastAccessed[cacheKey] = DateTime.now();
     _bytes[cacheKey] = _estimateImageBytes(image);
     _totalBytes += _bytes[cacheKey]!;
-    _enforceByteBudget();
+    _enforceByteBudget(protectKey: cacheKey);
   }
 
   /// 从字节统计中移除一个键（不 dispose，由调用方决定）。
@@ -253,11 +273,21 @@ class ImageCacheManager {
   /// 引用就不会被回收；手动立即/延迟 dispose 会让仍被绘制的图片抛
   /// "Cannot clone a disposed image"（回前台重建灰块）。字节预算只做摘索引，
   /// 内存实际由 GC 兜底回收。
-  void _disposeEntry(String cacheKey) {
-    _cache.remove(cacheKey);
+  /// [disposeImage] 只在确认没有 widget 仍持有该句柄时才传 true：
+  /// 退到后台那条路径会先通知组件放下引用，再连句柄一起释放，把像素真正
+  /// 还给系统。其余场景（字节预算淘汰、过期清理）一律只摘索引。
+  void _disposeEntry(String cacheKey, {bool disposeImage = false}) {
+    final image = _cache.remove(cacheKey);
     _dropBytes(cacheKey);
     _refCount.remove(cacheKey);
     _lastAccessed.remove(cacheKey);
+    if (disposeImage && image != null) {
+      try {
+        image.dispose();
+      } catch (_) {
+        // 已被释放或正被其它层持有，忽略即可。
+      }
+    }
   }
 
   /// 超出字节预算时按 LRU 淘汰。
@@ -267,7 +297,7 @@ class ImageCacheManager {
   /// 的策略在真实使用中等同于"永不淘汰"，最终耗尽 32 位设备的地址空间。
   /// 这里改为以最后访问时间为准的 LRU；最近被访问过的图片（很可能正在被绘制）
   /// 受到 [_evictionProtectionWindow] 保护。
-  void _enforceByteBudget() {
+  void _enforceByteBudget({String? protectKey}) {
     final budget = maxBytes;
     if (budget <= 0) return;
     if (_totalBytes <= budget) return;
@@ -275,6 +305,10 @@ class ImageCacheManager {
     final now = DateTime.now();
     final candidates = <String>[];
     for (final key in _cache.keys) {
+      // 刚存入的条目不能由它自己触发的那次淘汰杀掉：此刻它还在 _loading 里
+      // （要等 finally 才移除），会被判定成"随时可淘汰"；若它恰好是唯一候选，
+      // 就会把刚解码好的图立刻摘掉，再通过 completer 交给调用方一个空条目。
+      if (key == protectKey) continue;
       final lastAccessed = _lastAccessed[key];
       final isRecentlyUsed = lastAccessed != null &&
           now.difference(lastAccessed) < _evictionProtectionWindow;
@@ -304,7 +338,12 @@ class ImageCacheManager {
   /// 系统内存压力下的紧急释放：只保留最近仍在使用的少量图片。
   ///
   /// 由 App 生命周期（didHaveMemoryPressure / onTrimMemory）调用。
-  void handleMemoryPressure() {
+  /// [releaseHandles] 区分两种调用场景：
+  /// - false（前台收到内存警告）：只摘索引。屏幕上的图片仍握着自己的句柄，
+  ///   画面不会突然变白，省下的是下一次加载才需要的内存。
+  /// - true（退到后台）：连句柄一起释放，并通知图片组件放下引用 —— 用户看不见，
+  ///   这时把像素真正还给系统才是安全的；回前台由组件自己重新加载。
+  void handleMemoryPressure({bool releaseHandles = false}) {
     if (kIsWeb) return;
     final now = DateTime.now();
     final evictable = <String>[];
@@ -315,7 +354,11 @@ class ImageCacheManager {
       if (!isRecentlyUsed) evictable.add(key);
     }
     for (final key in evictable) {
-      _disposeEntry(key);
+      _disposeEntry(key, disposeImage: releaseHandles);
+    }
+    if (releaseHandles && evictable.isNotEmpty) {
+      // 句柄已经失效，通知组件放下引用。
+      lifecycleGeneration.value++;
     }
   }
 

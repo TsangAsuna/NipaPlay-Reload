@@ -88,6 +88,8 @@ class _CachedNetworkImageWidgetState extends State<CachedNetworkImageWidget> {
   @override
   void initState() {
     super.initState();
+    ImageCacheManager.instance.lifecycleGeneration
+        .addListener(_onCacheReleased);
     _loadImage();
   }
 
@@ -106,9 +108,38 @@ class _CachedNetworkImageWidgetState extends State<CachedNetworkImageWidget> {
 
   @override
   void dispose() {
+    ImageCacheManager.instance.lifecycleGeneration
+        .removeListener(_onCacheReleased);
     _isDisposed = true;
-    // 完全移除图片释放逻辑，改为依赖缓存管理器的定期清理
+    // 句柄的释放统一交给缓存管理器按字节预算与内存压力决定，
+    // 组件这边只负责在收到通知时放下引用。
     super.dispose();
+  }
+
+  /// 缓存管理器主动释放了句柄（退到后台），或者 App 回到了前台。
+  ///
+  /// 释放时必须放下自己手里的引用：那些 [ui.Image] 已经被 dispose，
+  /// 继续交给 RawImage 绘制只会画出一块空白。回前台则重新加载一次，
+  /// 走磁盘缓存解码，不产生网络请求。
+  void _onCacheReleased() {
+    if (!mounted || _isDisposed) return;
+    final isResumed =
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    if (isResumed) {
+      setState(() {
+        _isImageLoaded = false;
+      });
+      _loadImage(force: true);
+      return;
+    }
+    setState(() {
+      _basicImage = null;
+      _imageFuture = null;
+      _isImageLoaded = false;
+    });
+    // 允许回前台时重新走一遍加载。
+    _currentUrl = null;
+    _didScheduleRetry = false;
   }
 
   /// 首次加载失败时调度一次自动重试：刮削刚完成一瞬间 CDN/URL 可能尚未
@@ -126,8 +157,9 @@ class _CachedNetworkImageWidgetState extends State<CachedNetworkImageWidget> {
     });
   }
 
-  void _loadImage() async {
-      if (_currentUrl == widget.imageUrl || _isDisposed) return;
+  void _loadImage({bool force = false}) async {
+      if (_isDisposed) return;
+      if (!force && _currentUrl == widget.imageUrl) return;
       _currentUrl = widget.imageUrl;
       _hasRetriedLowRes = false;
 
@@ -396,6 +428,14 @@ class _CachedNetworkImageWidgetState extends State<CachedNetworkImageWidget> {
         height: widget.height,
       );
     }
+
+    // 标记"这张图正在被显示"：LRU 淘汰只看最后访问时间，而静止显示在屏幕上的
+    // 图片不会再走缓存命中路径，不标记就会被当成最久未访问的那批淘汰掉。
+    ImageCacheManager.instance.touch(
+      widget.imageUrl,
+      targetWidth: _decodeTarget?.$1,
+      targetHeight: _decodeTarget?.$2,
+    );
 
     return SizedBox(
       width: widget.width,

@@ -16,6 +16,7 @@ import 'package:nipaplay/player_menu/player_menu_models.dart';
 import 'package:kmbal_ionicons/kmbal_ionicons.dart';
 import 'bounce_hover_scale.dart';
 import 'video_settings_menu.dart';
+import 'package:nipaplay/themes/nipaplay/widgets/player_menu_theme.dart';
 import 'dart:async';
 import 'package:nipaplay/services/desktop_player_window_service.dart';
 import 'package:nipaplay/widgets/desktop_transient_overlay.dart';
@@ -831,7 +832,25 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
 
                                     // 画面比例按钮（适应/填充/拉伸/16:9/4:3）——PopupMenuButton 自动锚定在按钮旁
                                                                         // （showMenu 手动算锚点在不同布局下会飘到左上角，已弃用）
-                                                                        PopupMenuButton<VideoAspectMode>(
+                                                                        // 仅换皮：包一层 Nipa 主题的 PopupMenuTheme；交互/锚定/点外部
+                                                                        // 关闭全部保持 PopupMenuButton 默认行为。
+                                                                        PopupMenuTheme(
+                                                                          data: PopupMenuThemeData(
+                                                                            color: PlayerMenuTheme
+                                                                                .colorsOf(context)
+                                                                                .surface,
+                                                                            shape: RoundedRectangleBorder(
+                                                                              borderRadius:
+                                                                                  BorderRadius.circular(12),
+                                                                            ),
+                                                                            textStyle: TextStyle(
+                                                                              color: PlayerMenuTheme
+                                                                                  .colorsOf(context)
+                                                                                  .foreground,
+                                                                            ),
+                                                                            elevation: 8,
+                                                                          ),
+                                                                          child: PopupMenuButton<VideoAspectMode>(
                                                                           key: _aspectMenuKey,
                                                                           onSelected: (mode) => unawaited(
                                                                             videoState.setVideoAspectMode(mode),
@@ -846,15 +865,24 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
                                                                                     if (videoState
                                                                                             .videoAspectMode ==
                                                                                         m)
-                                                                                      const Icon(
+                                                                                      Icon(
                                                                                         Icons.check,
                                                                                         size: 16,
-                                                                                        color: Colors.green,
+                                                                                        color: PlayerMenuTheme
+                                                                                            .colorsOf(context)
+                                                                                            .selectedForeground,
                                                                                       )
                                                                                     else
                                                                                       const SizedBox(width: 16),
                                                                                     const SizedBox(width: 8),
-                                                                                    Text(_aspectModeLabel(m)),
+                                                                                    Text(
+                                                                                      _aspectModeLabel(m),
+                                                                                      style: TextStyle(
+                                                                                        color: PlayerMenuTheme
+                                                                                            .colorsOf(context)
+                                                                                            .foreground,
+                                                                                      ),
+                                                                                    ),
                                                                                   ],
                                                                                 ),
                                                                               ),
@@ -879,6 +907,7 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
                                                                                 '画面比例（适应/填充/拉伸/16:9/4:3）',
                                                                           ),
                                                                         ),
+                                                                    ),
 
                                     const SizedBox(width: 8),
 

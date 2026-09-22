@@ -18,6 +18,7 @@ import 'package:nipaplay/models/bangumi_model.dart';
 import 'package:nipaplay/models/playable_item.dart';
 import 'package:nipaplay/models/shared_remote_library.dart';
 import 'package:nipaplay/models/watch_history_model.dart';
+import 'package:nipaplay/utils/media_source_utils.dart';
 import 'package:nipaplay/providers/appearance_settings_provider.dart';
 import 'package:nipaplay/providers/watch_history_provider.dart';
 import 'package:nipaplay/services/bangumi_service.dart';
@@ -737,9 +738,26 @@ class _AdaptiveMediaCollectionViewState
     return item.animeName;
   }
 
+  /// [TEMP-DIAG] webdav 缩略图丢失排查：打印每条 webdav 卡片的海报解析结果。
+  /// 空态每次打印；非空态按 animeId 只打印一次（避免刷屏）。定位后移除。
+  static final Set<int> _diagWebDavThumbLogged = <int>{};
+
   static String _imageUrl(WatchHistoryItem item, BangumiAnime? detail) {
-    if (detail?.imageUrl.isNotEmpty == true) return detail!.imageUrl;
-    return item.thumbnailPath ?? '';
+    final detailImage = detail?.imageUrl ?? '';
+    final thumb = item.thumbnailPath ?? '';
+    final String resolved =
+        detailImage.isNotEmpty ? detailImage : (thumb.isNotEmpty ? thumb : '');
+    if (MediaSourceUtils.isWebDavPath(item.filePath)) {
+      final animeId = item.animeId;
+      if (resolved.isEmpty ||
+          (animeId != null && _diagWebDavThumbLogged.add(animeId))) {
+        debugPrint(
+          '[WEBDAV-THUMB] animeId=$animeId file=${item.filePath} '
+          'thumb=$thumb detailImg=$detailImage resolved=$resolved',
+        );
+      }
+    }
+    return resolved;
   }
 }
 

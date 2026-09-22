@@ -32,10 +32,10 @@ class AspectRatioMenu extends StatefulWidget {
   final bool standaloneWindow;
 
   /// 面板宽度：仅容纳勾选图标 + 最长选项（"16:9"）文字，避免大片空余。
-  static const double menuWidth = 104;
+  static const double menuWidth = 96;
 
-  /// 面板高度：9 个紧凑选项。
-  static const double menuHeight = 370;
+  /// 面板高度：贴合 9 个紧凑选项，避免多余窗口空间占用。
+  static const double menuHeight = 336;
 
   @override
   State<AspectRatioMenu> createState() => _AspectRatioMenuState();
@@ -205,7 +205,7 @@ class _AspectRatioMenuState extends State<AspectRatioMenu> {
       child: InkWell(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(color: menuColors.divider, width: 0.5),

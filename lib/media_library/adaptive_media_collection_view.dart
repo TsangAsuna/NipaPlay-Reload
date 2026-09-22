@@ -52,8 +52,7 @@ class LibraryNewContentTracker {
   static final LibraryNewContentTracker instance = LibraryNewContentTracker._();
 
   static const String _baselineKey = 'library_new_content_baseline_v1';
-  static const String _discoveredAtKey =
-      'library_new_content_discovered_v1';
+  static const String _discoveredAtKey = 'library_new_content_discovered_v1';
 
   final Map<String, Map<int, int>> _baselines = {};
   // 每部番剧当前 NEW 内容的「首次发现时间」（毫秒时间戳）。
@@ -259,14 +258,12 @@ class LibraryNewContentTracker {
       if (discoveredRaw != null && discoveredRaw.isNotEmpty) {
         final discoveredExisting = json.decode(discoveredRaw);
         if (discoveredExisting is Map) {
-          discoveredAll
-              .addAll(Map<String, dynamic>.from(discoveredExisting));
+          discoveredAll.addAll(Map<String, dynamic>.from(discoveredExisting));
         }
       }
-      discoveredAll[key] = currentDiscovered
-          .map((k, v) => MapEntry<String, dynamic>('$k', v));
-      await prefs.setString(
-          _discoveredAtKey, json.encode(discoveredAll));
+      discoveredAll[key] =
+          currentDiscovered.map((k, v) => MapEntry<String, dynamic>('$k', v));
+      await prefs.setString(_discoveredAtKey, json.encode(discoveredAll));
     } catch (e) {
       debugPrint('保存媒体库新内容基线失败: $e');
     }
@@ -371,8 +368,7 @@ class _AdaptiveMediaCollectionViewState
                   );
         _episodeCounts = _episodeCountByAnime(provider.history);
         _recomputeNewContentState();
-        final filteredItems =
-            _filterAndSort(allItems, _lastOpenTime);
+        final filteredItems = _filterAndSort(allItems, _lastOpenTime);
         for (final item in filteredItems) {
           _ensureDetail(item.animeId!);
         }
@@ -399,6 +395,7 @@ class _AdaptiveMediaCollectionViewState
                 details: _details,
                 newAnimeIds: _newAnimeIds,
                 onRefresh: _sync,
+                onEnsureDetail: _ensureDetail,
                 onTap: _openAnimeDetail,
               ),
             ),
@@ -969,6 +966,7 @@ class AdaptiveMediaCollectionItems extends material.StatelessWidget {
     required this.newAnimeIds,
     required this.onRefresh,
     required this.onTap,
+    this.onEnsureDetail,
   });
 
   final UnifiedMediaLibrarySource source;
@@ -980,6 +978,11 @@ class AdaptiveMediaCollectionItems extends material.StatelessWidget {
   final Set<int> newAnimeIds;
   final Future<void> Function() onRefresh;
   final material.ValueChanged<WatchHistoryItem> onTap;
+
+  /// 新滚入或详情缺失的卡片按需补拉刮削详情/海报 URL（detail 为 null 时
+  /// 触发）——否则滚动不触发父级 build，新滚入卡片永远拿不到海报，只能
+  /// 等手动刷新（用户反馈：刷新只补屏幕上已有的、往下滚不出新图）。
+  final material.ValueChanged<int>? onEnsureDetail;
 
   @override
   material.Widget build(material.BuildContext context) {
@@ -1033,6 +1036,9 @@ class AdaptiveMediaCollectionItems extends material.StatelessWidget {
           itemBuilder: (context, index) {
             final item = items[index];
             final detail = details[item.animeId];
+            if (detail == null && item.animeId != null) {
+              onEnsureDetail?.call(item.animeId!);
+            }
             return NipaplayLargeScreenModeScope(
               isActive: true,
               child: AnimeCard(
@@ -1097,6 +1103,9 @@ class AdaptiveMediaCollectionItems extends material.StatelessWidget {
             itemBuilder: (context, index) {
               final item = items[index];
               final detail = details[item.animeId];
+              if (detail == null && item.animeId != null) {
+                onEnsureDetail?.call(item.animeId!);
+              }
               return CupertinoAnimeCard(
                 title: _AdaptiveMediaCollectionViewState._title(item, detail),
                 imageUrl:
@@ -1158,6 +1167,9 @@ class AdaptiveMediaCollectionItems extends material.StatelessWidget {
       itemBuilder: (context, index) {
         final item = items[index];
         final detail = details[item.animeId];
+        if (detail == null && item.animeId != null) {
+          onEnsureDetail?.call(item.animeId!);
+        }
         return HorizontalAnimeCard(
           imageUrl: _AdaptiveMediaCollectionViewState._imageUrl(item, detail),
           title: _AdaptiveMediaCollectionViewState._title(item, detail),

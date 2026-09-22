@@ -16,6 +16,7 @@ import 'package:nipaplay/player_menu/player_menu_models.dart';
 import 'package:kmbal_ionicons/kmbal_ionicons.dart';
 import 'bounce_hover_scale.dart';
 import 'video_settings_menu.dart';
+import 'arrow_menu_container.dart';
 import 'package:nipaplay/themes/nipaplay/widgets/player_menu_theme.dart';
 import 'dart:async';
 import 'package:nipaplay/services/desktop_player_window_service.dart';
@@ -42,22 +43,14 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
   final GlobalKey _playlistButtonKey = GlobalKey();
   final GlobalKey _settingsButtonKey = GlobalKey();
   final GlobalKey _progressBarKey = GlobalKey();
-  final GlobalKey<PopupMenuButtonState<VideoAspectMode>> _aspectMenuKey =
-      GlobalKey();
+  final GlobalKey _aspectButtonKey = GlobalKey();
+  OverlayEntry? _aspectOverlay;
 
-  // 画面比例菜单的几何参数。
-  // PopupMenuButton 默认按 PopupMenuPosition.over 把菜单左上角锚定在按钮左上角，
-  // 而本菜单有 9 项，在屏幕底部的控制栏上展开时会被 _PopupMenuRouteLayout 的
-  // 屏幕内 clamp 下推，导致菜单盖住触发按钮本身。
-  // 这里只给向上展开的偏移：菜单底部距按钮顶部 _kAspectMenuGap。
-  // 水平方向不偏移，交给框架就近对齐（与 PiliPlus 的画面比例菜单一致）。
-  static const double _kAspectMenuItemHeight = 36; // 菜单项统一高度，对齐 PiliPlus 的紧凑菜单项
-  static const double _kAspectMenuVerticalPadding = 16; // showMenu 默认 menuPadding 的上下合计（8 + 8）
-  static const double _kAspectMenuWidth = 160; // 菜单固定宽度，所有菜单项等宽
-  static const double _kAspectMenuGap = 8; // 菜单底部与按钮顶部之间的间距
-  static final double _kAspectMenuHeight =
-      _kAspectMenuItemHeight * VideoAspectMode.values.length +
-          _kAspectMenuVerticalPadding;
+  // 画面比例菜单几何参数：弹出菜单与触发按钮等宽（锁定同一列区域），箭头指向按钮中心。
+  // 按钮为文字按钮（显示当前模式），菜单项文字用 FittedBox 收缩，任何模式下都不溢出。
+  static const double _kAspectMenuWidth = 64; // 按钮与菜单的统一宽度
+  static const double _kAspectMenuItemHeight = 36; // 菜单项统一高度
+  static const double _kAspectMenuGap = 8; // 菜单与按钮之间的间距
   bool _isRewindPressed = false;
   bool _isForwardPressed = false;
   bool _isPlayPressed = false;
@@ -202,6 +195,232 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
     );
   }
 
+  void _toggleAspectMenu(BuildContext buttonContext) {
+    if (_aspectOverlay != null) {
+      _closeAspectMenu();
+      return;
+    }
+    _settingsPopup?.close();
+    _settingsPopup = null;
+    _playlistPopup?.close();
+    _playlistPopup = null;
+    _settingsOverlay?.remove();
+    _settingsOverlay = null;
+    _playlistOverlay?.remove();
+    _playlistOverlay = null;
+
+    final videoState =
+        Provider.of<VideoPlayerState>(buttonContext, listen: false);
+    videoState.setControlsVisibilityLocked(true);
+
+    Rect? anchorRect;
+    final RenderBox? renderBox =
+        _aspectButtonKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox != null && renderBox.hasSize) {
+      anchorRect = renderBox.localToGlobal(Offset.zero) & renderBox.size;
+    }
+    if (anchorRect == null) {
+      // 按钮尚未完成布局（极端情况）：不弹菜单，直接恢复控制栏状态。
+      videoState.setControlsVisibilityLocked(false);
+      return;
+    }
+
+    _aspectOverlay = OverlayEntry(
+      builder: (overlayContext) => _buildAspectMenu(
+        overlayContext,
+        videoState: videoState,
+        rawAnchorRect: anchorRect!,
+      ),
+    );
+    Overlay.of(buttonContext).insert(_aspectOverlay!);
+  }
+
+  void _closeAspectMenu() {
+    _aspectOverlay?.remove();
+    _aspectOverlay = null;
+    if (mounted) {
+      Provider.of<VideoPlayerState>(context, listen: false)
+          .setControlsVisibilityLocked(false);
+    }
+  }
+
+  /// UiScaleWrapper 会缩放 MediaQuery 尺寸；与 VideoSettingsMenu 相同，
+  /// 把按钮的 global 坐标换算回 overlay 的布局空间。
+  Rect _normalizeAspectAnchorRect(BuildContext context, Rect rect) {
+    final mediaSize = MediaQuery.of(context).size;
+    if (mediaSize.width == 0 || mediaSize.height == 0) {
+      return rect;
+    }
+    final view = View.of(context);
+    final viewSize = view.physicalSize / view.devicePixelRatio;
+    final double scaleX = viewSize.width / mediaSize.width;
+    final double scaleY = viewSize.height / mediaSize.height;
+    if (!scaleX.isFinite ||
+        !scaleY.isFinite ||
+        scaleX <= 0 ||
+        scaleY <= 0 ||
+        ((scaleX - 1.0).abs() < 0.001 && (scaleY - 1.0).abs() < 0.001)) {
+      return rect;
+    }
+    return Rect.fromLTWH(
+      rect.left / scaleX,
+      rect.top / scaleY,
+      rect.width / scaleX,
+      rect.height / scaleY,
+    );
+  }
+
+  Widget _buildAspectMenu(
+    BuildContext overlayContext, {
+    required VideoPlayerState videoState,
+    required Rect rawAnchorRect,
+  }) {
+    final mediaSize = MediaQuery.of(overlayContext).size;
+    final Rect anchorRect =
+        _normalizeAspectAnchorRect(overlayContext, rawAnchorRect);
+    // 菜单宽度与按钮宽度相等：不夹取时菜单左右边缘与按钮完全重合。
+    final bool showAbove =
+        anchorRect.top >= mediaSize.height - anchorRect.bottom;
+    const double horizontalMargin = 12;
+    const double pointerPadding = 12;
+    final double left = (anchorRect.center.dx - _kAspectMenuWidth / 2)
+        .clamp(
+          horizontalMargin,
+          mediaSize.width - _kAspectMenuWidth - horizontalMargin,
+        )
+        .toDouble();
+    // 箭头 x 相对菜单左缘；按钮被屏幕边缘夹取时箭头随之移动，仍指向按钮中心。
+    final double pointerX = (anchorRect.center.dx - left)
+        .clamp(pointerPadding, _kAspectMenuWidth - pointerPadding)
+        .toDouble();
+
+    return Consumer<VideoPlayerState>(
+      builder: (context, liveVideoState, _) {
+        final menuColors = PlayerMenuTheme.colorsOf(context);
+        return Material(
+          type: MaterialType.transparency,
+          child: SizedBox(
+            width: mediaSize.width,
+            height: mediaSize.height,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: _closeAspectMenu,
+                    child: const ColoredBox(color: Colors.transparent),
+                  ),
+                ),
+                Positioned(
+                  left: left,
+                  top: showAbove ? null : anchorRect.bottom + _kAspectMenuGap,
+                  bottom: showAbove
+                      ? mediaSize.height - anchorRect.top + _kAspectMenuGap
+                      : null,
+                  width: _kAspectMenuWidth,
+                  child: ArrowMenuContainer(
+                    backgroundColor: menuColors.surface,
+                    borderColor: menuColors.border,
+                    blurValue: 0,
+                    borderRadius: 12,
+                    showPointer: true,
+                    pointUp: !showAbove,
+                    pointerX: pointerX,
+                    pointerWidth: 12,
+                    pointerHeight: 8,
+                    contentPadding: EdgeInsets.only(
+                      top: showAbove ? 0 : 8,
+                      bottom: showAbove ? 8 : 0,
+                    ),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: mediaSize.height - 140,
+                      ),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (final mode in VideoAspectMode.values)
+                              _buildAspectModeItem(
+                                context,
+                                videoState: liveVideoState,
+                                mode: mode,
+                                selected: liveVideoState.videoAspectMode == mode,
+                                isLast: mode == VideoAspectMode.values.last,
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAspectModeItem(
+    BuildContext context, {
+    required VideoPlayerState videoState,
+    required VideoAspectMode mode,
+    required bool selected,
+    required bool isLast,
+  }) {
+    final menuColors = PlayerMenuTheme.colorsOf(context);
+    return InkWell(
+      onTap: () {
+        unawaited(videoState.setVideoAspectMode(mode));
+        _closeAspectMenu();
+      },
+      child: Container(
+        height: _kAspectMenuItemHeight,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          border: isLast
+              ? null
+              : Border(
+                  bottom: BorderSide(
+                    color: menuColors.divider,
+                    width: 0.5,
+                  ),
+                ),
+        ),
+        child: Row(
+          children: [
+            if (selected) ...[
+              Icon(
+                Icons.check,
+                size: 14,
+                color: menuColors.selectedForeground,
+              ),
+              const SizedBox(width: 6),
+            ] else
+              const SizedBox(width: 20),
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  _aspectModeLabel(mode),
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: selected
+                        ? menuColors.selectedForeground
+                        : menuColors.foreground,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _showSettingsMenu(BuildContext buttonContext) async {
     final videoState = Provider.of<VideoPlayerState>(
       buttonContext,
@@ -230,6 +449,8 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
     _playlistOverlay = null;
     _settingsOverlay?.remove();
     _settingsOverlay = null;
+    _aspectOverlay?.remove();
+    _aspectOverlay = null;
     videoState.setControlsVisibilityLocked(true);
 
     Rect? anchorRect;
@@ -294,6 +515,8 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
     _playlistPopup = null;
     _settingsOverlay?.remove();
     _settingsOverlay = null;
+    _aspectOverlay?.remove();
+    _aspectOverlay = null;
     _playlistOverlay?.remove();
     _playlistOverlay = null;
     videoState.setControlsVisibilityLocked(true);
@@ -844,97 +1067,50 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
                                         .isFeatureEnabled)
                                       const SizedBox(width: 12),
 
-                                    // 画面比例按钮（适应/填充/拉伸/16:9/4:3）——PopupMenuButton 锚定在按钮正上方
-                                                                        // （showMenu 手动算锚点在不同布局下会飘到左上角，已弃用）
-                                                                        // 仅换皮：包一层 Nipa 主题的 PopupMenuTheme；交互/锚定/点外部
-                                                                        // 关闭全部保持 PopupMenuButton 默认行为。
-                                                                        PopupMenuTheme(
-                                                                          data: PopupMenuThemeData(
-                                                                            color: PlayerMenuTheme
-                                                                                .colorsOf(context)
-                                                                                .surface,
-                                                                            shape: RoundedRectangleBorder(
-                                                                              borderRadius:
-                                                                                  BorderRadius.circular(12),
-                                                                            ),
-                                                                            textStyle: TextStyle(
-                                                                              color: PlayerMenuTheme
-                                                                                  .colorsOf(context)
-                                                                                  .foreground,
-                                                                            ),
-                                                                            elevation: 8,
-                                                                          ),
-                                                                          child: PopupMenuButton<VideoAspectMode>(
-                                                                          key: _aspectMenuKey,
-                                                                          position: PopupMenuPosition.over,
-                                                                          // 水平方向偏移必须为 0：框架的 x 定位是「就近对齐」，
-                                                                          // 按钮靠右时菜单右边缘贴按钮右边缘，靠左时左边缘贴左边缘。
-                                                                          // offset.dx 在这两个分支里含义相反，拿它做水平居中会让菜单反向漂移。
-                                                                          offset: Offset(
-                                                                            0,
-                                                                            -(_kAspectMenuHeight + _kAspectMenuGap),
-                                                                          ),
-                                                                          padding: EdgeInsets.zero,
-                                                                          constraints: const BoxConstraints.tightFor(
-                                                                            width: _kAspectMenuWidth,
-                                                                          ),
-                                                                          onSelected: (mode) => unawaited(
-                                                                            videoState.setVideoAspectMode(mode),
-                                                                          ),
-                                                                          itemBuilder: (context) => [
-                                                                            for (final m
-                                                                                in VideoAspectMode.values)
-                                                                              PopupMenuItem<VideoAspectMode>(
-                                                                                value: m,
-                                                                                height: _kAspectMenuItemHeight,
-                                                                                child: Row(
-                                                                                  children: [
-                                                                                    if (videoState
-                                                                                            .videoAspectMode ==
-                                                                                        m)
-                                                                                      Icon(
-                                                                                        Icons.check,
-                                                                                        size: 16,
-                                                                                        color: PlayerMenuTheme
-                                                                                            .colorsOf(context)
-                                                                                            .selectedForeground,
-                                                                                      )
-                                                                                    else
-                                                                                      const SizedBox(width: 16),
-                                                                                    const SizedBox(width: 8),
-                                                                                    Text(
-                                                                                      _aspectModeLabel(m),
-                                                                                      style: TextStyle(
-                                                                                        color: PlayerMenuTheme
-                                                                                            .colorsOf(context)
-                                                                                            .foreground,
-                                                                                      ),
-                                                                                    ),
-                                                                                  ],
-                                                                                ),
-                                                                              ),
-                                                                          ],
-                                                                          tooltip: '画面比例（适应/填充/拉伸/16:9/4:3）',
-                                                                          child: _buildControlButton(
-                                                                                                                                                    icon: const Icon(
-                                                                                                                                                      Icons.aspect_ratio,
-                                                                                                                                                      color: Colors.white,
-                                                                                                                                                      size: 24,
-                                                                                                                                                    ),
-                                                                                                                                                    onTap: () => _aspectMenuKey
-                                                                                                                                                        .currentState
-                                                                                                                                                        ?.showButtonMenu(),
-                                                                            isPressed: _isAspectModePressed,
-                                                                            isHovered: _isAspectModeHovered,
-                                                                            onHover: (value) => setState(() =>
-                                                                                _isAspectModeHovered = value),
-                                                                            onPressed: (value) => setState(() =>
-                                                                                _isAspectModePressed = value),
-                                                                            tooltip:
-                                                                                '画面比例（适应/填充/拉伸/16:9/4:3）',
-                                                                          ),
-                                                                        ),
-                                                                    ),
+                                    // 画面比例按钮：文字按钮显示当前模式，弹出菜单与按钮等宽，
+                                    // 菜单箭头指向按钮中心（与设置菜单同用 ArrowMenuContainer 方案）。
+                                    // 不用 PopupMenuButton：它的水平定位是「就近对齐」，菜单必然
+                                    // 比窄按钮多出一截向外伸展，无法实现菜单宽度 == 按钮宽度。
+                                    Builder(
+                                      builder: (buttonContext) {
+                                        return SizedBox(
+                                          key: _aspectButtonKey,
+                                          child: _buildControlButton(
+                                            icon: Container(
+                                              width: _kAspectMenuWidth,
+                                              height: 24,
+                                              alignment: Alignment.center,
+                                              child: FittedBox(
+                                                fit: BoxFit.scaleDown,
+                                                child: Padding(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(horizontal: 6),
+                                                  child: Text(
+                                                    _aspectModeLabel(videoState
+                                                        .videoAspectMode),
+                                                    maxLines: 1,
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                            onTap: () =>
+                                                _toggleAspectMenu(buttonContext),
+                                            isPressed: _isAspectModePressed,
+                                            isHovered: _isAspectModeHovered,
+                                            onHover: (value) => setState(() =>
+                                                _isAspectModeHovered = value),
+                                            onPressed: (value) => setState(() =>
+                                                _isAspectModePressed = value),
+                                            tooltip:
+                                                '画面比例（适应/填充/拉伸/16:9/4:3）',
+                                          ),
+                                        );
+                                      },
+                                    ),
 
                                     const SizedBox(width: 8),
 

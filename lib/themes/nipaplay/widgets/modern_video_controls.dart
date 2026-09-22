@@ -43,7 +43,6 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
   final GlobalKey _settingsButtonKey = GlobalKey();
   final GlobalKey _progressBarKey = GlobalKey();
   final GlobalKey _aspectMenuKey = GlobalKey();
-  static const double _aspectMenuWidth = 176;
   bool _isRewindPressed = false;
   bool _isForwardPressed = false;
   bool _isPlayPressed = false;
@@ -326,9 +325,8 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
     Overlay.of(buttonContext).insert(_playlistOverlay!);
   }
 
-  /// 画面比例菜单：沿用 NipaPlay 设置/播放列表的锚定弹层样式打开
-  /// [AspectRatioMenu]（BaseSettingsMenu 面板 + PlayerMenuTheme 着色），
-  /// 替代原先默认 PopupMenuButton 列表。
+  /// 画面比例菜单：PiLiPlus 式紧凑下拉（无标题栏/关闭按钮，窄面板贴按钮）。
+  /// 锚点由 [AspectRatioMenu] 通过 [GlobalKey] 自行解析并归一化坐标。
   void _showAspectMenu(BuildContext buttonContext) {
     final videoState = Provider.of<VideoPlayerState>(
       buttonContext,
@@ -358,23 +356,12 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
       }
     }
 
-    // PiLiPlus 式下拉定位：面板左缘对齐按钮左缘、贴按钮下方，避免
-    // BaseSettingsMenu 默认“水平居中于锚点”导致小按钮两侧悬空。
-    final Rect? dropdownAnchor = anchorRect == null
-        ? null
-        : Rect.fromLTWH(
-            anchorRect.left + (_aspectMenuWidth / 2),
-            anchorRect.top,
-            0,
-            anchorRect.height,
-          );
-
     if (anchorRect != null &&
         DesktopMultiWindow.isSecondaryWindow(buttonContext)) {
       final popup = DesktopTransientOverlay.showPopup(
         context: buttonContext,
         anchorRect: anchorRect,
-        size: const Size(_aspectMenuWidth, 480),
+        size: const Size(AspectRatioMenu.menuWidth, AspectRatioMenu.menuHeight),
         placement: DesktopTransientWindowPlacement.above,
         contentBuilder: (_, close) => AspectRatioMenu(
           standaloneWindow: true,
@@ -393,7 +380,8 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
 
     _aspectOverlay = OverlayEntry(
       builder: (context) => AspectRatioMenu(
-        anchorRect: dropdownAnchor,
+        anchorKey: _aspectMenuKey,
+        anchorRect: anchorRect,
         standaloneWindow: false,
         onClose: () {
           videoState.setControlsVisibilityLocked(false);

@@ -198,6 +198,10 @@ class MdkPlayerAdapter implements AbstractPlayer, AsyncDisposablePlayer {
   String? _activeAudioDecoder;
   int _internalAudioTrackCount = 0; // 内部音频轨道数，用于区分外挂MKA轨道
   final String _httpProxy;
+  // 幂等守卫：热切换主路径（步骤 3.1）与 finally 兜底会先后调用
+  // disposeAsync，必须合并为同一次 teardown，杜绝 double mdkPlayerAPI_delete。
+  bool _isDisposed = false;
+  Future<void>? _disposeAsyncFuture;
 
   MdkPlayerAdapter({String? httpProxy})
       : _httpProxy = (httpProxy ?? '').trim() {
@@ -480,24 +484,59 @@ class MdkPlayerAdapter implements AbstractPlayer, AsyncDisposablePlayer {
   }
 
   @override
-    void dispose() => _mdkPlayer.dispose();
-
-    /// 异步释放：native 释放可能阻塞主线程（MDK 切换 libmpv 时旧内核
-    /// 同步 dispose 卡死过）。先停解码管线让 mdk 内部线程收敛，再让出
-    /// 一帧执行 dispose——dispose 是同步 FFI，超时机制救不了已阻塞的
-    /// 平台线程，唯一防线是调用前把内核置为 stopped 空闲态。
-    @override
-    Future<void> disposeAsync() async {
-      try {
-        if (state != PlayerPlaybackState.stopped) {
-          state = PlayerPlaybackState.stopped;
-        }
-      } catch (e) {
-        debugPrint('MDK: dispose 前置停止失败: $e');
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      dispose();
+  void dispose() {
+    if (_isDisposed) {
+      return;
     }
+    _isDisposed = true;
+    _mdkPlayer.dispose();
+  }
+
+  /// 异步释放：fvp 的 Player.dispose() 是 `async void`——内部先
+  /// `await updateTexture(width:-1)`（releaseTexture 平台通道往返 +
+  /// 等待 videoSize Completer），最后才执行 mdkPlayerAPI_delete，
+  /// 调用方无法等待其完成。旧实现调用后立即返回，导致：
+  /// 1) 播放中热切换时，旧原生实例（解码线程/GL 上下文/音频输出）在
+  ///    新内核创建并起播时仍未销毁（await 挂起或异步链未走完），
+  ///    新旧实例在平台线程并存 → 死锁卡死（iPadOS 实测：空闲切换必现
+  ///    不卡、播放中切换卡死，正源于此）；
+  /// 2) finally 兜底与主路径并发触发 double mdkPlayerAPI_delete。
+  /// 现策略：并发调用合并（_disposeAsyncFuture）+ 幂等；并主动用带超时的
+  /// updateTexture(width:-1) 提前收敛纹理与 Completer，使 dispose() 内部
+  /// 的同调用变成快速 no-op，原生删除在新建内核初始化前到达。
+  @override
+  Future<void> disposeAsync() {
+    return _disposeAsyncFuture ??= _disposeAsyncInternal();
+  }
+
+  Future<void> _disposeAsyncInternal() async {
+    PlayerKernelManager.traceHotSwapStage('mdk teardown: set stopped begin');
+    try {
+      if (state != PlayerPlaybackState.stopped) {
+        state = PlayerPlaybackState.stopped;
+      }
+    } catch (e) {
+      debugPrint('MDK: dispose 前置停止失败: $e');
+    }
+    // ← 历史卡死点 1：fvp dispose 内部的 updateTexture 等待 videoSize
+    PlayerKernelManager.traceHotSwapStage('mdk teardown: releaseTexture begin');
+    try {
+      await _mdkPlayer
+          .updateTexture(width: -1)
+          .timeout(const Duration(seconds: 3));
+    } catch (e) {
+      debugPrint('MDK: dispose 前释放纹理未完成（继续销毁）: $e');
+    }
+    PlayerKernelManager.traceHotSwapStage('mdk teardown: releaseTexture done');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    // ← 历史卡死点 2：mdkPlayerAPI_delete（同步 FFI）
+    PlayerKernelManager.traceHotSwapStage('mdk teardown: native delete begin');
+    dispose();
+    // fvp dispose 为 async void：上面的 updateTexture 已提前收敛，
+    // 此处短暂让出，确保 mdkPlayerAPI_delete 在新内核初始化前执行。
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    PlayerKernelManager.traceHotSwapStage('mdk teardown: done');
+  }
 
   @override
   Future<PlayerFrame?> snapshot({int width = 0, int height = 0}) async {

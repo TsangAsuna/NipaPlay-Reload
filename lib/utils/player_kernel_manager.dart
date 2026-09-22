@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import '../player_abstraction/player_factory.dart';
 import '../player_abstraction/player_abstraction.dart';
 import '../danmaku_abstraction/danmaku_kernel_factory.dart';
@@ -8,6 +9,7 @@ import '../danmaku_next/next2_platform_support.dart';
 import 'globals.dart' as globals;
 import 'package:nipaplay/constants/settings_keys.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nipaplay/utils/storage_service.dart';
 import 'video_player_state.dart';
 import '../models/watch_history_model.dart';
 
@@ -16,6 +18,44 @@ import '../models/watch_history_model.dart';
 class PlayerKernelManager {
   static const Duration defaultHotSwapPlayerDisposalTimeout =
       Duration(seconds: 10);
+
+  // ── 热切换同步落盘 trace ────────────────────────────────────────────
+  // FileLogService 每 1s 才从内存缓冲刷盘，主 isolate 被原生 FFI 阻塞或
+  // 崩溃时缓冲全部丢失（用户实测：app 卡死后日志中断，无法定位卡死点）。
+  // 这里在每个阶段【之前】同步 writeAsStringSync(flush:true)——app 卡死后
+  // 日志文件的最后一行即精确卡死步骤。仅热切换期间写入，开销可忽略。
+  static String? _hotSwapTraceFilePath;
+
+  static Future<void> _prepareHotSwapTraceFile() async {
+    if (_hotSwapTraceFilePath != null) return;
+    try {
+      final appDir = await StorageService.getAppStorageDirectory();
+      final logDir = Directory(p.join(appDir.path, 'logs'));
+      if (!logDir.existsSync()) {
+        logDir.createSync(recursive: true);
+      }
+      _hotSwapTraceFilePath = p.join(logDir.path, 'kernel_swap_trace.txt');
+    } catch (_) {
+      // 落盘不可用时静默降级：trace 仍会输出到 debugPrint
+    }
+  }
+
+  /// 同步写入一条热切换阶段 trace（可被各内核适配器调用）。
+  static void traceHotSwapStage(String message) {
+    final line = '[${DateTime.now().toIso8601String()}] $message';
+    debugPrint('[KernelSwapTrace] $line');
+    final file = _hotSwapTraceFilePath;
+    if (file == null) return;
+    try {
+      File(file).writeAsStringSync(
+        '$line\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (_) {
+      // trace 失败不影响热切换本身
+    }
+  }
 
   /// 热切换入口：旧内核先「强制退出」（停止 + 彻底销毁），新内核再创建并
   /// 起播，全程保证同一时刻只有一个原生播放实例。
@@ -33,17 +73,46 @@ class PlayerKernelManager {
   /// 串行化保证：teardown 必须 await 完成后才返回，让上层 drain 循环
   /// 在下一轮切换前确认旧实例已销毁。频繁切换时多个原生实例的销毁与
   /// 初始化在平台线程交叠会导致死锁（实测第 4 次切换主 isolate 冻死）。
+  /// 除 await 外，入口还对多轮切换做排队（_hotSwapQueue）：前一轮彻底
+  /// 完成（含旧实例销毁）后才开始下一轮，彻底排除交叠窗口。
+  ///
+  /// 为什么这样是有效的：fvp 的 Player.dispose 是 `async void`、media_kit
+  /// 的 dispose 只调度后台销毁，旧实现的 await 实际等不到原生销毁；
+  /// 现在两个适配器的 disposeAsync 均已合并并发调用并等待原生销毁完成
+  /// （详见各自注释），本入口的排队则保证轮与轮之间不交叠。
   static Future<void> performPlayerKernelHotSwap(
     VideoPlayerState videoPlayerState, {
     Duration playerDisposalTimeout = defaultHotSwapPlayerDisposalTimeout,
+  }) {
+    final task = _hotSwapQueue.catchError((Object _) {}).then(
+          (_) => _performPlayerKernelHotSwapLocked(
+            videoPlayerState,
+            playerDisposalTimeout: playerDisposalTimeout,
+          ),
+        );
+    _hotSwapQueue = task;
+    return task;
+  }
+
+  /// 热切换排队链：前一轮完成前，后续切换一律等待。
+  static Future<void> _hotSwapQueue = Future<void>.value();
+
+  static Future<void> _performPlayerKernelHotSwapLocked(
+    VideoPlayerState videoPlayerState, {
+    required Duration playerDisposalTimeout,
   }) async {
     if (videoPlayerState.isDisposed) {
       return;
     }
+    await _prepareHotSwapTraceFile();
+    traceHotSwapStage(
+        'swap begin kernel=${videoPlayerState.player.getPlayerKernelName()}');
     // surface 代数自增 → 渲染层 ValueKey 变化 → 旧 Texture/PlatformView 子树
     // 被强制销毁重建（等效"关闭重开"）。必须在创建新 Player 之前发生，
     // 保证新 surface 挂载时平台线程上只有新内核实例。
+    traceHotSwapStage('stage=surfaceSwap begin');
     videoPlayerState.beginKernelSurfaceSwap();
+    traceHotSwapStage('stage=surfaceSwap done');
     final previousPlayer = videoPlayerState.player;
     try {
       await performPlayerKernelHotSwapSteps(
@@ -51,6 +120,8 @@ class PlayerKernelManager {
         playerDisposalTimeout: playerDisposalTimeout,
       );
     } finally {
+      // 幂等兜底：有视频分支已在步骤 3.1 销毁过（适配器 disposeAsync 已
+      // 并发合并 + 幂等，重复调用立即返回），此处覆盖无视频分支与异常路径。
       await _disposePlayerForHotSwap(
         previousPlayer,
         timeout: playerDisposalTimeout,
@@ -78,18 +149,22 @@ class PlayerKernelManager {
         '[PlayerKernelManager] Old player teardown started: '
         'kernel=$kernelName timeoutMs=${timeout.inMilliseconds}',
       );
+      traceHotSwapStage('old teardown start kernel=$kernelName');
       await player.disposeAsync().timeout(timeout);
+      traceHotSwapStage('old teardown completed kernel=$kernelName');
       debugPrint(
         '[PlayerKernelManager] Old player teardown completed: '
         'kernel=$kernelName',
       );
     } on TimeoutException {
+      traceHotSwapStage('old teardown TIMEOUT kernel=$kernelName');
       debugPrint(
         '[PlayerKernelManager] Old player teardown timed out after '
         '${timeout.inMilliseconds}ms; new player keeps playing: '
         'kernel=$kernelName',
       );
     } catch (error) {
+      traceHotSwapStage('old teardown FAILED kernel=$kernelName $error');
       debugPrint(
         '[PlayerKernelManager] Old player teardown failed; '
         'new player keeps playing: kernel=$kernelName $error',

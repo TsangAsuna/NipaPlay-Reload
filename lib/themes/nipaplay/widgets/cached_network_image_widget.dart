@@ -70,6 +70,7 @@ class _CachedNetworkImageWidgetState extends State<CachedNetworkImageWidget> {
   String? _currentUrl;
   bool _isImageLoaded = false;
   bool _isDisposed = false;
+  bool _didScheduleRetry = false; // 加载失败只自动重试一次，避免死循环
   ui.Image? _basicImage; // 基础图片
   bool _hasRetriedLowRes = false;
 
@@ -108,6 +109,21 @@ class _CachedNetworkImageWidgetState extends State<CachedNetworkImageWidget> {
     _isDisposed = true;
     // 完全移除图片释放逻辑，改为依赖缓存管理器的定期清理
     super.dispose();
+  }
+
+  /// 首次加载失败时调度一次自动重试：刮削刚完成一瞬间 CDN/URL 可能尚未
+  /// 就绪，失败显示占位后通过重建触发重载，无需用户手动刷新/清缓存。
+  void _scheduleImageRetryIfNeeded() {
+    if (_didScheduleRetry || _isDisposed || widget.imageUrl.isEmpty) return;
+    _didScheduleRetry = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isDisposed) return;
+      _currentUrl = null; // 允许 _loadImage 再次执行
+      _hasRetriedLowRes = false;
+      setState(() {
+        _loadImage();
+      });
+    });
   }
 
   void _loadImage() async {
@@ -422,6 +438,9 @@ class _CachedNetworkImageWidgetState extends State<CachedNetworkImageWidget> {
               }
 
               if (snapshot.hasError && selectedImage == null) {
+                // 首次失败自动重试一次：刮削刚完成时 CDN 可能尚未就绪，
+                // 旧实现直接落入占位且不重试，表现为"要手动刷新才出图"。
+                _scheduleImageRetryIfNeeded();
                 if (widget.errorBuilder != null) {
                   return widget.errorBuilder!(context, snapshot.error!);
                 }

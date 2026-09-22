@@ -151,23 +151,39 @@ class ImageCacheManager {
         if (!forceRefresh && !kIsWeb) {
           final cacheFile = await _getCacheFile(url); // 文件名只跟URL有关
           if (await cacheFile.exists()) {
-            final bytes = await cacheFile.readAsBytes();
-            final codec = await ui.instantiateImageCodec(
-              bytes,
-              targetWidth: targetWidth,
-              targetHeight: targetHeight,
-            );
-            final frame = await codec.getNextFrame();
-            final image = frame.image;
+            // 磁盘缓存可能因写入中断/半途失败残留 0 字节或损坏文件：
+            // 一旦命中错误文件，解码必然失败 → 该 URL 永久"不出图"，只有
+            // 手动刷新/清缓存才恢复（用户反馈的按需刷新才出图）。这里
+            // 解码失败就删除坏文件并回落到网络重新下载。
+            try {
+              final bytes = await cacheFile.readAsBytes();
+              if (bytes.isNotEmpty) {
+                final codec = await ui.instantiateImageCodec(
+                  bytes,
+                  targetWidth: targetWidth,
+                  targetHeight: targetHeight,
+                );
+                final frame = await codec.getNextFrame();
+                final image = frame.image;
 
-            _store(cacheKey, image);
-            completer.complete(image);
-            return; // 加载成功，退出IIFE
+                _store(cacheKey, image);
+                completer.complete(image);
+                return; // 加载成功，退出IIFE
+              }
+            } catch (_) {
+              // 损坏/不可解码的缓存：删除，走网络重下
+            }
+            try {
+              await cacheFile.delete();
+            } catch (_) {}
           }
         }
 
         // 从网络下载
         final downloadedBytes = await loadNetworkImageBytes(Uri.parse(url));
+        if (downloadedBytes.isEmpty) {
+          throw StateError('Empty image response for $url');
+        }
 
         // 保存到本地缓存 (只保存原图数据)
         //
@@ -177,8 +193,12 @@ class ImageCacheManager {
         // isolate 启动和字节缓冲跨 isolate 拷贝，产出为零。真正的解码由下面
         // instantiateImageCodec 完成，它本身就是流式的，也能做降采样。
         if (!kIsWeb) {
-          final cacheFile = await _getCacheFile(url);
-          await cacheFile.writeAsBytes(downloadedBytes);
+          try {
+            final cacheFile = await _getCacheFile(url);
+            await cacheFile.writeAsBytes(downloadedBytes);
+          } catch (_) {
+            // 写盘失败不阻断本次显示
+          }
         }
 
         // 解码图片数据

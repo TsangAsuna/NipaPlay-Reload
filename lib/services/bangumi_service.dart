@@ -116,6 +116,30 @@ class BangumiService {
     return null;
   }
 
+  /// 批量预热番剧详情（媒体库封面/简介数据源）。
+  ///
+  /// 智能刷新（刮削）只把 animeId 写进观看历史，封面 URL 要调详情接口才有。
+  /// 没有预热时，媒体库首屏渲染会对所有 animeId 并发取详情，miss 的条目
+  /// 封面回退到空的 thumbnailPath 显示为灰块。
+  ///
+  /// 这里在刮削完成后按 animeId 逐个调用 [getAnimeDetails]：命中内存缓存
+  /// 直接返回；miss 时走磁盘缓存或网络，并且全部经过 [_makeRequest] 内部的
+  /// 限流队列，不会对中转服务器形成突发并发。预热结果写入同一份磁盘缓存
+  /// （新番 7 天 / 旧番 30 天 TTL），之后媒体库渲染时 getAnimeDetailsFromMemory
+  /// 同步命中，首帧即有图；未来新刮削的番剧同样被覆盖，无需额外处理。
+  Future<void> warmUpAnimeDetails(Iterable<int> animeIds) async {
+    await initialize();
+    final uniqueIds = animeIds.where((id) => id > 0).toSet();
+    for (final animeId in uniqueIds) {
+      if (_detailsCache.containsKey(animeId)) continue;
+      try {
+        await getAnimeDetails(animeId);
+      } catch (_) {
+        // 单个失败不阻断预热；下次刷新或媒体库渲染时会再试。
+      }
+    }
+  }
+
   Future<void> loadData() async {
     try {
       //debugPrint('[新番-弹弹play] 开始加载新番数据');

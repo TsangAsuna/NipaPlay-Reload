@@ -7,6 +7,7 @@ import 'package:nipaplay/models/watch_history_model.dart';
 import 'package:nipaplay/services/concurrent_video_processor.dart';
 import 'package:nipaplay/services/rust_file_scan_service.dart';
 import 'package:nipaplay/services/android_saf_service.dart';
+import 'package:nipaplay/services/bangumi_service.dart';
 import 'package:nipaplay/utils/ios_container_path_fixer.dart';
 import 'dart:convert';
 // Import Provider if ScanService needs to directly refresh other providers,
@@ -715,6 +716,8 @@ class ScanService with ChangeNotifier {
           progress: 1.0,
           message: "智能刷新完成：所有文件夹都没有变化，无需重新扫描。",
           completed: true);
+      // 无变化也要预热：详情缓存可能已过期，保证媒体库首屏直接出图。
+      await _warmUpAnimeDetailsFromHistory();
       return;
     }
 
@@ -760,6 +763,26 @@ class ScanService with ChangeNotifier {
           message: completionMessage,
           completed: true);
       _precomputedFolderDiffs.clear();
+      // 刮削完成后预热全部番剧详情：封面/简介在进媒体库前就绪，
+      // 渲染时同步命中内存缓存，首屏直接出图、滑动不丢。
+      await _warmUpAnimeDetailsFromHistory();
+    }
+  }
+
+  /// 取观看历史里全部 animeId，逐个预热详情到 BangumiService 缓存。
+  ///
+  /// 放在扫描状态已结束之后调用，失败只记日志不影响刷新结果。
+  Future<void> _warmUpAnimeDetailsFromHistory() async {
+    try {
+      final items = await WatchHistoryManager.getAllHistory();
+      final animeIds = items
+          .map((item) => item.animeId)
+          .whereType<int>()
+          .toSet();
+      if (animeIds.isEmpty) return;
+      await BangumiService.instance.warmUpAnimeDetails(animeIds);
+    } catch (e) {
+      debugPrint('预热番剧详情失败: $e');
     }
   }
 

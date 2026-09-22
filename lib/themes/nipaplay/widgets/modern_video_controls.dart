@@ -47,13 +47,13 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
 
   // 画面比例菜单的几何参数。
   // PopupMenuButton 默认按 PopupMenuPosition.over 把菜单左上角锚定在按钮左上角，
-  // 而本菜单有 9 项（共 448 逻辑像素高），在屏幕底部的控制栏上展开时会被
-  // _PopupMenuRouteLayout 的屏幕内 clamp 下推，导致菜单盖住触发按钮本身。
-  // 这里显式给出向上展开的偏移：菜单底部距按钮顶部 _kAspectMenuGap，并水平居中于按钮。
-  static const double _kAspectButtonSize = 24; // 触发按钮边长（Icon size: 24，无额外内边距）
-  static const double _kAspectMenuItemHeight = 48; // PopupMenuItem 默认最小高度 kMinInteractiveDimension
-  static const double _kAspectMenuVerticalPadding = 16; // PopupMenuButton.padding 默认 EdgeInsets.all(8) 的上下合计
-  static const double _kAspectMenuWidth = 160; // 菜单固定宽度，使水平居中量可计算
+  // 而本菜单有 9 项，在屏幕底部的控制栏上展开时会被 _PopupMenuRouteLayout 的
+  // 屏幕内 clamp 下推，导致菜单盖住触发按钮本身。
+  // 这里只给向上展开的偏移：菜单底部距按钮顶部 _kAspectMenuGap。
+  // 水平方向不偏移，交给框架就近对齐（与 PiliPlus 的画面比例菜单一致）。
+  static const double _kAspectMenuItemHeight = 36; // 菜单项统一高度，对齐 PiliPlus 的紧凑菜单项
+  static const double _kAspectMenuVerticalPadding = 16; // showMenu 默认 menuPadding 的上下合计（8 + 8）
+  static const double _kAspectMenuWidth = 160; // 菜单固定宽度，所有菜单项等宽
   static const double _kAspectMenuGap = 8; // 菜单底部与按钮顶部之间的间距
   static final double _kAspectMenuHeight =
       _kAspectMenuItemHeight * VideoAspectMode.values.length +
@@ -867,10 +867,14 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
                                                                           child: PopupMenuButton<VideoAspectMode>(
                                                                           key: _aspectMenuKey,
                                                                           position: PopupMenuPosition.over,
+                                                                          // 水平方向偏移必须为 0：框架的 x 定位是「就近对齐」，
+                                                                          // 按钮靠右时菜单右边缘贴按钮右边缘，靠左时左边缘贴左边缘。
+                                                                          // offset.dx 在这两个分支里含义相反，拿它做水平居中会让菜单反向漂移。
                                                                           offset: Offset(
-                                                                            -(_kAspectMenuWidth - _kAspectButtonSize) / 2,
+                                                                            0,
                                                                             -(_kAspectMenuHeight + _kAspectMenuGap),
                                                                           ),
+                                                                          padding: EdgeInsets.zero,
                                                                           constraints: const BoxConstraints.tightFor(
                                                                             width: _kAspectMenuWidth,
                                                                           ),
@@ -882,6 +886,7 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
                                                                                 in VideoAspectMode.values)
                                                                               PopupMenuItem<VideoAspectMode>(
                                                                                 value: m,
+                                                                                height: _kAspectMenuItemHeight,
                                                                                 child: Row(
                                                                                   children: [
                                                                                     if (videoState

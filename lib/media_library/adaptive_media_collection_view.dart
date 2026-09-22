@@ -292,6 +292,12 @@ class _AdaptiveMediaCollectionViewState
   final Map<int, BangumiAnime> _details = <int, BangumiAnime>{};
   final Map<int, Future<BangumiAnime>> _detailRequests =
       <int, Future<BangumiAnime>>{};
+  // 详情获取失败的 animeId 及其下次允许重试的时间。
+  // 失败静默入列后，滚动回来会原样再请求一次；没有这层限流，
+  // 中转服务器限流时会出现「整屏灰块反复重试」的风暴。
+  final Map<int, DateTime> _detailRetryAfter = <int, DateTime>{};
+  static const int _detailMaxConcurrency = 4;
+  static const Duration _detailRetryDelay = Duration(seconds: 30);
   String _query = '';
   MediaCollectionSort _sort = MediaCollectionSort.comprehensive;
   bool _isSyncing = false;
@@ -554,6 +560,27 @@ class _AdaptiveMediaCollectionViewState
       _details[animeId] = cached;
       return;
     }
+    // 失败冷却期内不再发请求，避免对限流中的服务器反复轰炸。
+    final retryAfter = _detailRetryAfter[animeId];
+    if (retryAfter != null) {
+      if (DateTime.now().isBefore(retryAfter)) return;
+      _detailRetryAfter.remove(animeId);
+    }
+    // 全量并发会把 30+ 个详情请求同时砸向中转服务器，排队超时/被丢后
+    // 整批失败，媒体库整屏灰块。这里排队执行，同时最多 4 个在飞。
+    // build 每帧都会对每个条目调一次本方法，队列必须去重。
+    if (_detailRequests.length >= _detailMaxConcurrency) {
+      if (!_pendingDetailIds.contains(animeId)) {
+        _pendingDetailIds.add(animeId);
+      }
+      return;
+    }
+    _startDetailRequest(animeId);
+  }
+
+  final List<int> _pendingDetailIds = <int>[];
+
+  void _startDetailRequest(int animeId) {
     final request = BangumiService.instance.getAnimeDetails(animeId);
     _detailRequests[animeId] = request;
     request.then((detail) {
@@ -561,10 +588,23 @@ class _AdaptiveMediaCollectionViewState
       setState(() {
         _details[animeId] = detail;
         _detailRequests.remove(animeId);
+        _detailRetryAfter.remove(animeId);
+        _pumpPendingDetails();
       });
     }).catchError((_) {
       _detailRequests.remove(animeId);
+      if (!mounted) return;
+      // 30 秒后允许重试；滚动回这屏时会自动再拉一次。
+      _detailRetryAfter[animeId] = DateTime.now().add(_detailRetryDelay);
+      setState(_pumpPendingDetails);
     });
+  }
+
+  void _pumpPendingDetails() {
+    while (_pendingDetailIds.isNotEmpty &&
+        _detailRequests.length < _detailMaxConcurrency) {
+      _startDetailRequest(_pendingDetailIds.removeAt(0));
+    }
   }
 
   Future<void> _sync() async {

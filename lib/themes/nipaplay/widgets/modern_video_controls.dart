@@ -16,7 +16,6 @@ import 'package:nipaplay/player_menu/player_menu_models.dart';
 import 'package:kmbal_ionicons/kmbal_ionicons.dart';
 import 'bounce_hover_scale.dart';
 import 'video_settings_menu.dart';
-import 'aspect_ratio_menu.dart';
 import 'dart:async';
 import 'package:nipaplay/services/desktop_player_window_service.dart';
 import 'package:nipaplay/widgets/desktop_transient_overlay.dart';
@@ -42,10 +41,8 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
   final GlobalKey _playlistButtonKey = GlobalKey();
   final GlobalKey _settingsButtonKey = GlobalKey();
   final GlobalKey _progressBarKey = GlobalKey();
-  final GlobalKey _aspectMenuKey = GlobalKey();
-  // 画面比例下拉的锚定对（CompositedTransformTarget 在按钮上，
-  // AspectRatioMenu 里用 Follower 跟随，变换自适应不会漂移）。
-  final LayerLink _aspectLayerLink = LayerLink();
+  final GlobalKey<PopupMenuButtonState<VideoAspectMode>> _aspectMenuKey =
+      GlobalKey();
   bool _isRewindPressed = false;
   bool _isForwardPressed = false;
   bool _isPlayPressed = false;
@@ -62,10 +59,8 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
   bool _playStateChangedByDrag = false;
   OverlayEntry? _playlistOverlay;
   OverlayEntry? _settingsOverlay;
-  OverlayEntry? _aspectOverlay;
   DesktopTransientOverlay? _playlistPopup;
   DesktopTransientOverlay? _settingsPopup;
-  DesktopTransientOverlay? _aspectPopup;
   Timer? _doubleTapTimer;
   int _tapCount = 0;
   static const _doubleTapTimeout = Duration(milliseconds: 360);
@@ -86,6 +81,29 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
   bool _isDanmakuHovered = false;
   bool _isAspectModePressed = false;
   bool _isAspectModeHovered = false;
+
+  static String _aspectModeLabel(VideoAspectMode mode) {
+      switch (mode) {
+        case VideoAspectMode.contain:
+          return '适应';
+        case VideoAspectMode.cover:
+          return '裁剪';
+        case VideoAspectMode.fill:
+          return '拉伸';
+        case VideoAspectMode.fitWidth:
+          return '等宽';
+        case VideoAspectMode.fitHeight:
+          return '等高';
+        case VideoAspectMode.none:
+          return '原始';
+        case VideoAspectMode.scaleDown:
+          return '限制';
+        case VideoAspectMode.ratio16x9:
+          return '16:9';
+        case VideoAspectMode.ratio4x3:
+          return '4:3';
+      }
+    }
 
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
@@ -189,10 +207,6 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
       }
       return;
     }
-    _aspectPopup?.close();
-    _aspectPopup = null;
-    _aspectOverlay?.remove();
-    _aspectOverlay = null;
     _playlistPopup?.close();
     _playlistPopup = null;
     _settingsPopup?.close();
@@ -259,10 +273,6 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
       buttonContext,
       listen: false,
     );
-    _aspectPopup?.close();
-    _aspectPopup = null;
-    _aspectOverlay?.remove();
-    _aspectOverlay = null;
     _settingsPopup?.close();
     _settingsPopup = null;
     _playlistPopup?.close();
@@ -328,95 +338,12 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
     Overlay.of(buttonContext).insert(_playlistOverlay!);
   }
 
-  /// 画面比例菜单：PiLiPlus 式紧凑下拉（无标题栏/关闭按钮，窄面板贴按钮）。
-  /// 锚点由 [AspectRatioMenu] 通过 [GlobalKey] 自行解析并归一化坐标。
-  void _showAspectMenu(BuildContext buttonContext) {
-    final videoState = Provider.of<VideoPlayerState>(
-      buttonContext,
-      listen: false,
-    );
-    _settingsPopup?.close();
-    _settingsPopup = null;
-    _playlistPopup?.close();
-    _playlistPopup = null;
-    _settingsOverlay?.remove();
-    _settingsOverlay = null;
-    _playlistOverlay?.remove();
-    _playlistOverlay = null;
-    videoState.setControlsVisibilityLocked(true);
-
-    Rect? anchorRect;
-    final RenderBox? renderBox = buttonContext.findRenderObject() as RenderBox?;
-    if (renderBox != null && renderBox.hasSize) {
-      final position = renderBox.localToGlobal(Offset.zero);
-      anchorRect = position & renderBox.size;
-    } else {
-      final RenderBox? keyRenderBox =
-          _aspectMenuKey.currentContext?.findRenderObject() as RenderBox?;
-      if (keyRenderBox != null && keyRenderBox.hasSize) {
-        final position = keyRenderBox.localToGlobal(Offset.zero);
-        anchorRect = position & keyRenderBox.size;
-      }
-    }
-
-    if (anchorRect != null &&
-        DesktopMultiWindow.isSecondaryWindow(buttonContext)) {
-      final popup = DesktopTransientOverlay.showPopup(
-        context: buttonContext,
-        anchorRect: anchorRect,
-        size: const Size(AspectRatioMenu.menuWidth, AspectRatioMenu.menuHeight),
-        placement: DesktopTransientWindowPlacement.above,
-        contentBuilder: (_, close) => AspectRatioMenu(
-          standaloneWindow: true,
-          onClose: close,
-        ),
-        onClosed: () {
-          _aspectPopup = null;
-          videoState.setControlsVisibilityLocked(false);
-        },
-      );
-      if (popup != null) {
-        _aspectPopup = popup;
-        return;
-      }
-    }
-
-    // PiLiPlus 式下拉偏移：贴按钮下方（空间不足时贴上方），左缘与按钮齐平。
-    final Offset panelOffset;
-    if (anchorRect == null) {
-      panelOffset = const Offset(0, 0);
-    } else {
-      final screenSize = MediaQuery.of(buttonContext).size;
-      final showAbove =
-          anchorRect.top >= screenSize.height - anchorRect.bottom;
-      panelOffset = showAbove
-          ? Offset(0, -(AspectRatioMenu.menuHeight - anchorRect.height - 4))
-          : Offset(0, anchorRect.height + 4);
-    }
-
-    _aspectOverlay = OverlayEntry(
-      builder: (context) => AspectRatioMenu(
-        layerLink: _aspectLayerLink,
-        panelOffset: panelOffset,
-        standaloneWindow: false,
-        onClose: () {
-          videoState.setControlsVisibilityLocked(false);
-          _aspectOverlay?.remove();
-          _aspectOverlay = null;
-        },
-      ),
-    );
-    Overlay.of(buttonContext).insert(_aspectOverlay!);
-  }
-
   @override
   void dispose() {
     _playlistPopup?.close();
     _settingsPopup?.close();
-    _aspectPopup?.close();
     _playlistOverlay?.remove();
     _settingsOverlay?.remove();
-    _aspectOverlay?.remove();
     _doubleTapTimer?.cancel();
     super.dispose();
   }
@@ -902,39 +829,59 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
                                         .isFeatureEnabled)
                                       const SizedBox(width: 12),
 
-                                      // 画面比例按钮（适应/填充/拉伸/16:9/4:3）——沿用 NipaPlay 设置/播放列表的锚定菜单样式
-                                      Builder(
-                                        builder: (buttonContext) {
-                                          return CompositedTransformTarget(
-                                            link: _aspectLayerLink,
-                                            child: SizedBox(
-                                              key: _aspectMenuKey,
-                                              child: _buildControlButton(
-                                                icon: const Icon(
-                                                  Icons.aspect_ratio,
-                                                  color: Colors.white,
-                                                  size: 24,
-                                                ),
-                                                onTap: () =>
-                                                    _showAspectMenu(buttonContext),
-                                                isPressed: _isAspectModePressed,
-                                                isHovered: _isAspectModeHovered,
-                                                onHover: (value) => setState(
-                                                    () => _isAspectModeHovered =
-                                                        value),
-                                                onPressed: (value) =>
-                                                    setState(() =>
-                                                        _isAspectModePressed =
-                                                            value),
-                                                tooltip:
-                                                    '画面比例（适应/填充/拉伸/16:9/4:3）',
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
+                                    // 画面比例按钮（适应/填充/拉伸/16:9/4:3）——PopupMenuButton 自动锚定在按钮旁
+                                                                        // （showMenu 手动算锚点在不同布局下会飘到左上角，已弃用）
+                                                                        PopupMenuButton<VideoAspectMode>(
+                                                                          key: _aspectMenuKey,
+                                                                          onSelected: (mode) => unawaited(
+                                                                            videoState.setVideoAspectMode(mode),
+                                                                          ),
+                                                                          itemBuilder: (context) => [
+                                                                            for (final m
+                                                                                in VideoAspectMode.values)
+                                                                              PopupMenuItem<VideoAspectMode>(
+                                                                                value: m,
+                                                                                child: Row(
+                                                                                  children: [
+                                                                                    if (videoState
+                                                                                            .videoAspectMode ==
+                                                                                        m)
+                                                                                      const Icon(
+                                                                                        Icons.check,
+                                                                                        size: 16,
+                                                                                        color: Colors.green,
+                                                                                      )
+                                                                                    else
+                                                                                      const SizedBox(width: 16),
+                                                                                    const SizedBox(width: 8),
+                                                                                    Text(_aspectModeLabel(m)),
+                                                                                  ],
+                                                                                ),
+                                                                              ),
+                                                                          ],
+                                                                          tooltip: '画面比例（适应/填充/拉伸/16:9/4:3）',
+                                                                          child: _buildControlButton(
+                                                                                                                                                    icon: const Icon(
+                                                                                                                                                      Icons.aspect_ratio,
+                                                                                                                                                      color: Colors.white,
+                                                                                                                                                      size: 24,
+                                                                                                                                                    ),
+                                                                                                                                                    onTap: () => _aspectMenuKey
+                                                                                                                                                        .currentState
+                                                                                                                                                        ?.showButtonMenu(),
+                                                                            isPressed: _isAspectModePressed,
+                                                                            isHovered: _isAspectModeHovered,
+                                                                            onHover: (value) => setState(() =>
+                                                                                _isAspectModeHovered = value),
+                                                                            onPressed: (value) => setState(() =>
+                                                                                _isAspectModePressed = value),
+                                                                            tooltip:
+                                                                                '画面比例（适应/填充/拉伸/16:9/4:3）',
+                                                                          ),
+                                                                        ),
 
                                     const SizedBox(width: 8),
+
                                     // 弹幕开关按钮
                                     _buildControlButton(
                                       icon: _DanmakuToggleIcon(

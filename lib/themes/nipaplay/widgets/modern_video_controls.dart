@@ -44,6 +44,20 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
   final GlobalKey _progressBarKey = GlobalKey();
   final GlobalKey<PopupMenuButtonState<VideoAspectMode>> _aspectMenuKey =
       GlobalKey();
+
+  // 画面比例菜单的几何参数。
+  // PopupMenuButton 默认按 PopupMenuPosition.over 把菜单左上角锚定在按钮左上角，
+  // 而本菜单有 9 项（共 448 逻辑像素高），在屏幕底部的控制栏上展开时会被
+  // _PopupMenuRouteLayout 的屏幕内 clamp 下推，导致菜单盖住触发按钮本身。
+  // 这里显式给出向上展开的偏移：菜单底部距按钮顶部 _kAspectMenuGap，并水平居中于按钮。
+  static const double _kAspectButtonSize = 24; // 触发按钮边长（Icon size: 24，无额外内边距）
+  static const double _kAspectMenuItemHeight = 48; // PopupMenuItem 默认最小高度 kMinInteractiveDimension
+  static const double _kAspectMenuVerticalPadding = 16; // PopupMenuButton.padding 默认 EdgeInsets.all(8) 的上下合计
+  static const double _kAspectMenuWidth = 160; // 菜单固定宽度，使水平居中量可计算
+  static const double _kAspectMenuGap = 8; // 菜单底部与按钮顶部之间的间距
+  static final double _kAspectMenuHeight =
+      _kAspectMenuItemHeight * VideoAspectMode.values.length +
+          _kAspectMenuVerticalPadding;
   bool _isRewindPressed = false;
   bool _isForwardPressed = false;
   bool _isPlayPressed = false;
@@ -830,7 +844,7 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
                                         .isFeatureEnabled)
                                       const SizedBox(width: 12),
 
-                                    // 画面比例按钮（适应/填充/拉伸/16:9/4:3）——PopupMenuButton 自动锚定在按钮旁
+                                    // 画面比例按钮（适应/填充/拉伸/16:9/4:3）——PopupMenuButton 锚定在按钮正上方
                                                                         // （showMenu 手动算锚点在不同布局下会飘到左上角，已弃用）
                                                                         // 仅换皮：包一层 Nipa 主题的 PopupMenuTheme；交互/锚定/点外部
                                                                         // 关闭全部保持 PopupMenuButton 默认行为。
@@ -852,6 +866,14 @@ class _ModernVideoControlsState extends State<ModernVideoControls> {
                                                                           ),
                                                                           child: PopupMenuButton<VideoAspectMode>(
                                                                           key: _aspectMenuKey,
+                                                                          position: PopupMenuPosition.over,
+                                                                          offset: Offset(
+                                                                            -(_kAspectMenuWidth - _kAspectButtonSize) / 2,
+                                                                            -(_kAspectMenuHeight + _kAspectMenuGap),
+                                                                          ),
+                                                                          constraints: const BoxConstraints.tightFor(
+                                                                            width: _kAspectMenuWidth,
+                                                                          ),
                                                                           onSelected: (mode) => unawaited(
                                                                             videoState.setVideoAspectMode(mode),
                                                                           ),

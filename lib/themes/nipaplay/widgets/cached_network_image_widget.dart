@@ -157,13 +157,11 @@ class _CachedNetworkImageWidgetState extends State<CachedNetworkImageWidget> {
     });
   }
 
-  void _loadImage({bool force = false}) async {
+  void _loadImage({bool force = false}) {
       if (_isDisposed) return;
       if (!force && _currentUrl == widget.imageUrl) return;
       _currentUrl = widget.imageUrl;
       _hasRetriedLowRes = false;
-
-      final resolvedUrl = await _resolveImageUrl(widget.imageUrl);
 
       final target = _resolveDecodeTarget();
       _decodeTarget = target;
@@ -173,36 +171,40 @@ class _CachedNetworkImageWidgetState extends State<CachedNetworkImageWidget> {
       // 旧版：仅使用缓存管理器单通道加载
       if (widget.loadMode == CachedImageLoadMode.legacy) {
         _imageFuture = ImageCacheManager.instance.loadImage(
-          resolvedUrl,
+          widget.imageUrl,
           targetWidth: targetWidth,
           targetHeight: targetHeight,
         );
         return;
       }
 
+      // 同步命中优先：直接用原始 widget.imageUrl 查内存缓存，命中即显示、
+      // 零异步空档。缓存键统一为原始 URL（bgm.tv 反代只影响网络请求的 URL
+      // 改写，改写键会和历史磁盘/内存缓存键分叉），未命中才走异步链路，
+      // 反代由真正发起网络请求的 _loadBasicImage / ImageCacheManager 内部应用。
       final cachedImage = ImageCacheManager.instance.getCachedImage(
-        resolvedUrl,
+        widget.imageUrl,
         targetWidth: targetWidth,
         targetHeight: targetHeight,
       );
 
-    if (cachedImage != null) {
-      _basicImage = cachedImage;
-    } else {
-      // 混合模式：立即拉取基础图 + 异步加载高清图
-      _loadBasicImage();
-    }
+      if (cachedImage != null) {
+        _basicImage = cachedImage;
+      } else {
+        // 混合模式：立即拉取基础图 + 异步加载高清图
+        _loadBasicImage();
+      }
 
-    // 异步加载高清图片
-    if (widget.shouldCompress) {
-      _imageFuture = ImageCacheManager.instance.loadImage(
-        resolvedUrl,
-        targetWidth: targetWidth,
-        targetHeight: targetHeight,
-      );
-    } else {
-      _imageFuture = _loadOriginalImage(resolvedUrl);
-    }
+      // 异步加载高清图片
+      if (widget.shouldCompress) {
+        _imageFuture = ImageCacheManager.instance.loadImage(
+          widget.imageUrl,
+          targetWidth: targetWidth,
+          targetHeight: targetHeight,
+        );
+      } else {
+        _imageFuture = _loadOriginalImage(widget.imageUrl);
+      }
   }
 
   /// 解析本次解码的目标尺寸（物理像素）。
@@ -306,7 +308,9 @@ class _CachedNetworkImageWidgetState extends State<CachedNetworkImageWidget> {
 
   // 新增方法：直接加载原始图片，不进行压缩
   Future<ui.Image> _loadOriginalImage(String imageUrl) async {
-    final imageBytes = await loadNetworkImageBytes(Uri.parse(imageUrl));
+    // 网络请求应用反代；缓存键/句柄都按原始 URL 走（见 _loadImage 注释）。
+    final resolvedUrl = await _resolveImageUrl(imageUrl);
+    final imageBytes = await loadNetworkImageBytes(Uri.parse(resolvedUrl));
     final codec = await ui.instantiateImageCodec(
       imageBytes,
       targetWidth: _decodeTarget?.$1,

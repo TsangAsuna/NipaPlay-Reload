@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'storage_service.dart';
+import 'network_settings.dart';
 import 'package:nipaplay/services/media_server_image_loader.dart';
 
 class ImageCacheManager {
@@ -135,6 +136,27 @@ class ImageCacheManager {
     }
   }
 
+  /// 应用自定义 Bangumi API 服务器反代：api.bgm.tv 直连超时时，网络请求
+  /// 改写为用户配置的反代地址。内存/磁盘缓存键始终用原始 URL
+  /// （见 [loadImage] 注释），反代只在真正发起网络请求时生效。
+  Future<String> _resolveNetworkUrl(String url) async {
+    if (!url.startsWith('https://api.bgm.tv') &&
+        !url.startsWith('http://api.bgm.tv')) {
+      return url;
+    }
+    try {
+      final custom = await NetworkSettings.getBangumiServer();
+      if (custom.isNotEmpty &&
+          custom != 'https://api.bgm.tv' &&
+          custom != 'http://api.bgm.tv') {
+        return url
+            .replaceFirst('https://api.bgm.tv', custom)
+            .replaceFirst('http://api.bgm.tv', custom);
+      }
+    } catch (_) {}
+    return url;
+  }
+
   Future<ui.Image> loadImage(
     String url, {
     int? targetWidth,
@@ -145,6 +167,8 @@ class ImageCacheManager {
       await _initCacheDir();
     }
 
+    // 缓存键/磁盘文件名都以原始 URL 为准，与历史缓存一致：
+    // 反代改写只发生在真正发起网络请求时（见 _resolveNetworkUrl）。
     final cacheKey = _getCacheKeyWithDimensions(url, targetWidth, targetHeight);
 
     // 如果图片已经在内存缓存中，更新访问时间并增加引用计数
@@ -199,8 +223,11 @@ class ImageCacheManager {
           }
         }
 
-        // 从网络下载
-        final downloadedBytes = await loadNetworkImageBytes(Uri.parse(url));
+        // 从网络下载（反代只在真正发起网络请求时应用：缓存键始终是原始 URL，
+        // 改写只作用于本次下载地址，见 _resolveNetworkUrl）
+        final resolvedUrl = await _resolveNetworkUrl(url);
+        final downloadedBytes =
+            await loadNetworkImageBytes(Uri.parse(resolvedUrl));
         if (downloadedBytes.isEmpty) {
           throw StateError('Empty image response for $url');
         }
@@ -435,6 +462,13 @@ class ImageCacheManager {
     unawaited(_cleanupDiskCaches(force: true));
   }
 
+  /// 定期清理过期条目。
+  ///
+  /// 显示中的条目（build 每帧 touch，[_lastAccessed] 持续刷新）以及仍被
+  /// widget 持有句柄的条目（refCount > 0）豁免：滚回视口时还要靠
+  /// [CachedNetworkImageWidget] 的同步命中零空档恢复。真正的内存淘汰由
+  /// [_enforceByteBudget]（64MB 字节预算 + LRU + 2 秒保护窗）负责——
+  /// 滚出视口的图保留在内存直到超预算，滚回即命中，不再闪灰。
   void _cleanupExpiredImages() {
     final now = DateTime.now();
     final expiredUrls = <String>[];
@@ -443,9 +477,15 @@ class ImageCacheManager {
       final url = entry.key;
       final lastAccessed = entry.value;
 
-      // 检查是否过期且没有引用
-      if (now.difference(lastAccessed) > _maxCacheAge &&
-          (_refCount[url] ?? 0) <= 0) {
+      // 显示中的条目（2 秒保护窗内）豁免周期清理。
+      if (now.difference(lastAccessed) < _evictionProtectionWindow) {
+        continue;
+      }
+      // 仍有 widget 持有句柄的条目豁免：滚动往返要靠它命中。
+      if ((_refCount[url] ?? 0) > 0) continue;
+
+      // 仅摘「既不显示、又无引用、又超过缓存寿命」的条目。
+      if (now.difference(lastAccessed) > _maxCacheAge) {
         expiredUrls.add(url);
       }
     }

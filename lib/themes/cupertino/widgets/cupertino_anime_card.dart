@@ -1,7 +1,7 @@
 import 'package:nipaplay/themes/cupertino/cupertino_imports.dart';
 import 'package:intl/intl.dart';
 import 'package:nipaplay/media_library/adaptive_media_library_primitives.dart';
-import 'package:nipaplay/widgets/media_server_network_image.dart';
+import 'package:nipaplay/themes/nipaplay/widgets/cached_network_image_widget.dart';
 
 /// Cupertino风格的番剧卡片控件
 /// 专门用于显示共享媒体库中的番剧信息
@@ -286,12 +286,21 @@ class CupertinoAnimeCard extends StatelessWidget {
       );
     }
 
-    return MediaServerAwareNetworkImage(
-      imageUrl!,
+    // 走 ImageCacheManager（内存 LRU + 磁盘 + 失败自动重试）。
+    // 之前 MediaServerAwareNetworkImage 对非媒体服务器 URL 落到 Image.network，
+    // 只有内存缓存：卡片划出视口销毁后，滚动突发会把条目挤出 ImageCache，
+    // 划回时重新走网络且失败不重试——「划过再划回图片消失」的直接原因。
+    return CachedNetworkImageWidget(
+      key: ValueKey('cupertino-poster-$imageUrl'),
+      imageUrl: imageUrl!,
       fit: BoxFit.cover,
       width: double.infinity,
       height: double.infinity,
-      errorBuilder: (context, error, stackTrace) {
+      // 海报槽位约 120x168 逻辑像素；限制解码尺寸避免整图解码。
+      memCacheWidth: 240,
+      memCacheHeight: 336,
+      fadeDuration: Duration.zero,
+      errorBuilder: (context, error) {
         return Container(
           color: placeholderColor,
           child: const Center(
@@ -303,22 +312,6 @@ class CupertinoAnimeCard extends StatelessWidget {
           ),
         );
       },
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) {
-          return child;
-        }
-        return Container(
-          color: placeholderColor,
-          child: Center(
-            child: CupertinoActivityIndicator(
-              radius: 12,
-              color: CupertinoColors.inactiveGray,
-            ),
-          ),
-        );
-      },
-      // 使用低质量过滤以提高性能
-      filterQuality: FilterQuality.low,
     );
   }
 

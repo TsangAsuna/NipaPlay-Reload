@@ -44,6 +44,21 @@ class _SubtitleListMenuState extends State<SubtitleListMenu> {
   // 当前高亮条目的 Key，用于基于真实 RenderBox 精确定位（估算高度存在偏差）
   final GlobalKey _currentItemKey = GlobalKey();
   bool _locatingUnbuiltItem = false;
+  // 程序化滚动（点击定位/自动校正的 ensureVisible）进行中：抑制滚动监听
+  // 的窗口更新，否则动画滚入绝对阈值区（500px）会反复触发窗口滑动+
+  // jumpTo 回跳，列表在视口边缘来回跳动。
+  int _programmaticScrollDepth = 0;
+
+  bool get _isProgrammaticScroll => _programmaticScrollDepth > 0;
+
+  Future<void> _scrollProgrammatic(Future<void> Function() scrollAction) async {
+    _programmaticScrollDepth++;
+    try {
+      await scrollAction();
+    } finally {
+      _programmaticScrollDepth--;
+    }
+  }
 
   @override
   void initState() {
@@ -75,6 +90,7 @@ class _SubtitleListMenuState extends State<SubtitleListMenu> {
   void _handleScroll() {
     if (_isLoadingWindow ||
         _locatingUnbuiltItem ||
+        _isProgrammaticScroll ||
         _allSubtitleEntries.isEmpty) {
       return;
     }
@@ -309,13 +325,13 @@ class _SubtitleListMenuState extends State<SubtitleListMenu> {
       _calibrateItemHeight();
       final itemContext = _currentItemKey.currentContext;
       if (itemContext != null) {
-        Scrollable.ensureVisible(
-          itemContext,
-          alignment: 0.3,
-          duration:
-              animated ? const Duration(milliseconds: 250) : Duration.zero,
-          curve: Curves.easeInOut,
-        );
+        _scrollProgrammatic(() => Scrollable.ensureVisible(
+              itemContext,
+              alignment: 0.3,
+              duration:
+                  animated ? const Duration(milliseconds: 250) : Duration.zero,
+              curve: Curves.easeInOut,
+            ));
         return;
       }
 
@@ -324,18 +340,21 @@ class _SubtitleListMenuState extends State<SubtitleListMenu> {
       if (!_scrollController.hasClients) return;
       final target = (localIndex * _estimatedItemHeight)
           .clamp(0.0, _scrollController.position.maxScrollExtent);
-      _scrollController.jumpTo(target);
+      _scrollProgrammatic(() async {
+        _scrollController.jumpTo(target);
+        await WidgetsBinding.instance.endOfFrame;
+      });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         final ctx = _currentItemKey.currentContext;
         if (ctx != null) {
-          Scrollable.ensureVisible(
-            ctx,
-            alignment: 0.3,
-            duration:
-                animated ? const Duration(milliseconds: 250) : Duration.zero,
-            curve: Curves.easeInOut,
-          );
+          _scrollProgrammatic(() => Scrollable.ensureVisible(
+                ctx,
+                alignment: 0.3,
+                duration:
+                    animated ? const Duration(milliseconds: 250) : Duration.zero,
+                curve: Curves.easeInOut,
+              ));
         } else {
           _locateUnbuiltItem(globalIndex);
         }
@@ -381,12 +400,12 @@ class _SubtitleListMenuState extends State<SubtitleListMenu> {
     final leading = viewport.getOffsetToReveal(item, 0).offset;
     final trailing = viewport.getOffsetToReveal(item, 1).offset;
     if (leading >= pixels - 1 && trailing <= pixels + 1) return;
-    Scrollable.ensureVisible(
-      itemContext,
-      alignment: 0.3,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
+    _scrollProgrammatic(() => Scrollable.ensureVisible(
+          itemContext,
+          alignment: 0.3,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        ));
   }
 
   // 用列表实际内容高度校准估算条目高度：

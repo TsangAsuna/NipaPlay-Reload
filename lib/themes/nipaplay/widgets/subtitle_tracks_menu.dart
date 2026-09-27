@@ -148,6 +148,9 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
       BlurSnackBar.show(context, 'Web平台不支持加载本地字幕文件');
       return;
     }
+    // 防重入：文件选择器是异步的，期间再点按钮会叠起第二个选择器，
+    // 取消后两个调用互相覆盖 _isLoading，出现永远转圈。
+    if (_isLoading) return;
     final videoState = Provider.of<VideoPlayerState>(context, listen: false);
     try {
       if (mounted) {
@@ -244,6 +247,8 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
       BlurSnackBar.show(context, 'Web平台不支持加载远程字幕');
       return;
     }
+    // 防重入：候选列表/弹窗是异步的，期间再点按钮会叠加第二个弹窗
+    if (_isLoading) return;
 
     final videoState = Provider.of<VideoPlayerState>(context, listen: false);
     final videoPath = videoState.currentVideoPath;

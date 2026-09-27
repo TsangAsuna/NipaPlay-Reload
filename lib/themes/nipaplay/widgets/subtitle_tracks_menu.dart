@@ -90,6 +90,21 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
         final List<dynamic> decoded = json.decode(subtitlesJson);
         _externalSubtitles =
             decoded.map((item) => Map<String, dynamic>.from(item)).toList();
+        // 哈希名条目（旧版本写入的远程缓存路径）用下载登记的原名归正展示
+        for (final subtitle in _externalSubtitles) {
+          final entryPath = subtitle['path']?.toString() ?? '';
+          final entryName = subtitle['name']?.toString() ?? '';
+          if (entryPath.isEmpty) continue;
+          final isHashNamed = entryName.isEmpty ||
+              (entryName == p.basename(entryPath) &&
+                  entryPath.contains('remote_subtitles'));
+          if (!isHashNamed) continue;
+          final registered = await RemoteSubtitleService.instance
+              .lookupDisplayName(entryPath);
+          if (registered != null && registered.isNotEmpty) {
+            subtitle['name'] = registered;
+          }
+        }
       }
     } catch (e) {
       // print('加载外部字幕失败: $e');

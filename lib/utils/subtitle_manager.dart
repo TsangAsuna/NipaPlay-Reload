@@ -472,18 +472,21 @@ class SubtitleManager extends ChangeNotifier {
       subtitles.removeWhere((s) => s['path'] == subtitlePath);
 
       // 旧版本持久化过的条目可能存的是哈希文件名（远程缓存路径），
-      // 补登记当前显示名修正历史脏数据。
+      // 用下载时登记的持久化注册表修正显示名（不依赖本次会话内存注册，
+      // iOS/Windows 冷启动首次读取也能归正）。
       for (final s in subtitles) {
         final entryPath = s['path']?.toString() ?? '';
         if (entryPath.isEmpty) continue;
         final entryName = s['name']?.toString() ?? '';
-        if (entryName.isEmpty ||
-            entryName == p.basename(entryPath) &&
-                entryPath.contains('remote_subtitles')) {
-          final registered = _pathDisplayNames[entryPath];
-          if (registered != null && registered.isNotEmpty) {
-            s['name'] = registered;
-          }
+        final isHashNamed = entryName.isEmpty ||
+            (entryName == p.basename(entryPath) &&
+                entryPath.contains('remote_subtitles'));
+        if (!isHashNamed) continue;
+        final registered =
+            _pathDisplayNames[entryPath] ??
+            await RemoteSubtitleService.instance.lookupDisplayName(entryPath);
+        if (registered != null && registered.isNotEmpty) {
+          s['name'] = registered;
         }
       }
 
@@ -531,18 +534,27 @@ class SubtitleManager extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final videoHashKey = _getVideoHashKey(videoPath);
       final raw = prefs.getString('external_subtitles_$videoHashKey');
-      if (raw == null || raw.isEmpty) return null;
-      final decoded = json.decode(raw);
-      if (decoded is! List) return null;
-      for (final item in decoded) {
-        if (item is Map && item['path'] == subtitlePath) {
-          final name = item['name']?.toString();
-          if (name != null && name.isNotEmpty) return name;
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = json.decode(raw);
+        if (decoded is List) {
+          for (final item in decoded) {
+            if (item is Map && item['path'] == subtitlePath) {
+              final name = item['name']?.toString();
+              if (name != null && name.isNotEmpty) return name;
+            }
+          }
         }
       }
     } catch (e) {
       debugPrint('SubtitleManager: 读取字幕显示名失败: $e');
     }
+    // external_subtitles 里没有（或仍是哈希名）：查远程字幕下载时登记的
+    // 持久化注册表（跨进程/跨平台可用，不依赖本次会话的内存注册）。
+    try {
+      final registered = await RemoteSubtitleService.instance
+          .lookupDisplayName(subtitlePath);
+      if (registered != null) return registered;
+    } catch (_) {}
     return null;
   }
 

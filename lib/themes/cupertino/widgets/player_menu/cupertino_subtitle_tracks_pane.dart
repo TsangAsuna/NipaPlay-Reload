@@ -52,6 +52,21 @@ class _CupertinoSubtitleTracksPaneState
     try {
       final subtitles = await _subtitleService.loadExternalSubtitles(path);
       if (!mounted) return;
+      // 哈希名条目（旧版本写入的远程缓存路径）用下载登记的原名归正展示
+      for (final subtitle in subtitles) {
+        final entryPath = subtitle['path']?.toString() ?? '';
+        final entryName = subtitle['name']?.toString() ?? '';
+        if (entryPath.isEmpty) continue;
+        final isHashNamed = entryName.isEmpty ||
+            (entryName == entryPath.split('/').last.split('\\').last &&
+                entryPath.contains('remote_subtitles'));
+        if (!isHashNamed) continue;
+        final registered = await RemoteSubtitleService.instance
+            .lookupDisplayName(entryPath);
+        if (registered != null && registered.isNotEmpty) {
+          subtitle['name'] = registered;
+        }
+      }
       setState(() {
         _externalSubtitles = subtitles;
       });

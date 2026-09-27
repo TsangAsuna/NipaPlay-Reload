@@ -12,6 +12,7 @@ import 'package:nipaplay/services/smb2_native_service.dart';
 import 'package:nipaplay/services/smb_service.dart';
 import 'package:nipaplay/services/webdav_service.dart';
 import 'package:nipaplay/services/dandanplay_remote_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nipaplay/utils/media_source_utils.dart';
 import 'package:nipaplay/utils/storage_service.dart';
 import 'package:nipaplay/utils/subtitle_file_utils.dart';
@@ -281,6 +282,7 @@ class RemoteSubtitleService {
         await target.delete();
       }
       await tmp.rename(target.path);
+      await registerRemoteSubtitleDisplayName(target.path, candidate.name);
       await _ensureVobSubPairCached(candidate, allCandidates, target, extension);
       return target.path;
     } catch (e) {
@@ -288,6 +290,51 @@ class RemoteSubtitleService {
         await tmp.delete();
       }
       rethrow;
+    }
+  }
+
+  static const String _displayNamePrefsKey =
+      'remote_subtitle_display_names_v1';
+
+  /// 远程字幕缓存路径 → 原始文件名 的持久化注册表。
+  /// 缓存文件名是哈希，跨进程/跨平台（iOS/Windows）读取列表时都要用
+  /// 原名展示；下载完成即登记，任何端随时可查。
+  Future<void> registerRemoteSubtitleDisplayName(
+      String cachedPath, String originalName) async {
+    try {
+      if (cachedPath.isEmpty || originalName.isEmpty) return;
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_displayNamePrefsKey);
+      final Map<String, dynamic> table = raw != null && raw.isNotEmpty
+          ? (json.decode(raw) as Map).cast<String, dynamic>()
+          : <String, dynamic>{};
+      table[cachedPath] = originalName;
+      // 上限保护：注册表只增不减会无限膨胀，超量时丢弃最早写入的一半
+      if (table.length > 200) {
+        final keys = table.keys.toList();
+        for (final key in keys.take(table.length - 100)) {
+          table.remove(key);
+        }
+      }
+      await prefs.setString(_displayNamePrefsKey, json.encode(table));
+    } catch (e) {
+      debugPrint('RemoteSubtitleService: 登记字幕显示名失败: $e');
+    }
+  }
+
+  /// 查询远程字幕缓存路径的原始文件名；未登记（或条目仍是哈希名）返回 null。
+  /// 异步版查询：读持久化注册表，未命中返回 null。
+  Future<String?> lookupDisplayName(String cachedPath) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_displayNamePrefsKey);
+      if (raw == null || raw.isEmpty) return null;
+      final table = (json.decode(raw) as Map).cast<String, dynamic>();
+      final name = table[cachedPath]?.toString();
+      if (name == null || name.isEmpty) return null;
+      return name;
+    } catch (_) {
+      return null;
     }
   }
 

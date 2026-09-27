@@ -1301,6 +1301,12 @@ class SubtitleManager extends ChangeNotifier {
       // 首先检查是否有保存的字幕路径
       String? savedSubtitlePath = await getVideoSubtitlePath(videoPath);
       if (savedSubtitlePath != null && savedSubtitlePath.isNotEmpty) {
+        // 恢复持久化时登记的显示名（缓存文件名是哈希，不能用 basename）
+        final savedDisplayName = await _lookupPersistedDisplayName(
+          videoPath: videoPath,
+          subtitlePath: savedSubtitlePath,
+        );
+
         // 用户要求：VobSub（.sub/.idx）不作为自动恢复的主字幕——位图字幕
         // 内存重、日文为主。保存的映射是 sub/idx 时改选候选中的文本字幕
         // （SC/简中优先，TC 次选），sub/idx 转为叠挂候选。
@@ -1317,6 +1323,15 @@ class SubtitleManager extends ChangeNotifier {
                 'SubtitleManager: VobSub 主字幕替换为: $replacement');
             saveVideoSubtitleMapping(videoPath, replacement);
             savedSubtitlePath = replacement;
+            // 同步 external_subtitles 列表的激活标记：否则菜单仍高亮
+            // 旧的 VobSub 条目（isActive:true），而实际挂载的是替换后的
+            // 文本字幕——勾选状态与实际播放内容不一致。
+            unawaited(_persistExternalSubtitleSelection(
+              videoPath: videoPath,
+              subtitlePath: replacement,
+              isActive: true,
+              displayName: savedDisplayName ?? p.basename(replacement),
+            ));
           }
         }
         debugPrint('SubtitleManager: 找到保存的字幕映射: $savedSubtitlePath');
@@ -1325,12 +1340,6 @@ class SubtitleManager extends ChangeNotifier {
         final subtitleFile = File(savedSubtitlePath);
         if (subtitleFile.existsSync()) {
           debugPrint('SubtitleManager: 加载上次使用的外部字幕: $savedSubtitlePath');
-
-          // 恢复持久化时登记的显示名（缓存文件名是哈希，不能用 basename）
-          final savedDisplayName = await _lookupPersistedDisplayName(
-            videoPath: videoPath,
-            subtitlePath: savedSubtitlePath,
-          );
 
           // 等待一段时间确保播放器准备好
           await Future.delayed(_autoLoadPlayerReadyDelay);

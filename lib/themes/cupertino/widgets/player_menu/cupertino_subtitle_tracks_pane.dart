@@ -32,6 +32,10 @@ class _CupertinoSubtitleTracksPaneState
   List<Map<String, dynamic>> _externalSubtitles = [];
   bool _isLoading = false;
 
+  /// 远程字幕选择弹窗打开期间为 true：`_isLoading` 在弹窗出现前就复位了，
+  /// 没有它，弹窗开着时再点按钮会叠出第二个选择弹窗。
+  bool _isPickingRemote = false;
+
   @override
   void initState() {
     super.initState();
@@ -138,7 +142,10 @@ class _CupertinoSubtitleTracksPaneState
     }
 
     try {
-      setState(() => _isLoading = true);
+      setState(() {
+        _isLoading = true;
+        _isPickingRemote = true;
+      });
       final candidates = await RemoteSubtitleService.instance
           .listCandidatesForVideo(videoPath);
       if (!mounted) return;
@@ -218,7 +225,12 @@ class _CupertinoSubtitleTracksPaneState
     } catch (error) {
       _showMessage('加载远程字幕失败：$error');
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isPickingRemote = false;
+        });
+      }
     }
   }
 
@@ -386,7 +398,9 @@ class _CupertinoSubtitleTracksPaneState
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
           child: AdaptiveButton.child(
             style: AdaptiveButtonStyle.prominentGlass,
-            onPressed: _isLoading ? null : _loadRemoteSubtitleFile,
+            onPressed: (_isLoading || _isPickingRemote)
+                ? null
+                : _loadRemoteSubtitleFile,
             child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [

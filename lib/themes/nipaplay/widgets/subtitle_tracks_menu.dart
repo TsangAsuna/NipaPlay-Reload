@@ -38,6 +38,10 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
   // 存储外部字幕信息的列表
   List<Map<String, dynamic>> _externalSubtitles = [];
   bool _isLoading = false;
+
+  /// 远程字幕选择弹窗打开期间为 true：`_isLoading` 在弹窗出现前就复位了，
+  /// 没有它，弹窗开着时再点按钮会叠出第二个选择弹窗。
+  bool _isPickingRemote = false;
   VideoPlayerState? _videoPlayerState; // Add this member variable
 
   @override
@@ -262,8 +266,9 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
       BlurSnackBar.show(context, 'Web平台不支持加载远程字幕');
       return;
     }
-    // 防重入：候选列表/弹窗是异步的，期间再点按钮会叠加第二个弹窗
-    if (_isLoading) return;
+    // 防重入：_isLoading 在弹窗出现前就复位了，需要 _isPickingRemote 覆盖
+    // 从点按钮到弹窗关闭的全程，否则弹窗开着时再点会叠出第二个弹窗。
+    if (_isLoading || _isPickingRemote) return;
 
     final videoState = Provider.of<VideoPlayerState>(context, listen: false);
     final videoPath = videoState.currentVideoPath;
@@ -273,7 +278,10 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
     }
 
     try {
-      setState(() => _isLoading = true);
+      setState(() {
+        _isLoading = true;
+        _isPickingRemote = true;
+      });
 
       final candidates = await RemoteSubtitleService.instance
           .listCandidatesForVideo(videoPath);
@@ -374,7 +382,12 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
         BlurSnackBar.show(context, '加载远程字幕失败: $e');
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isPickingRemote = false;
+        });
+      }
     }
   }
 
@@ -679,7 +692,7 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
                             BlurButton(
                               icon: Icons.cloud_download_outlined,
                               text: "从远程媒体库加载字幕",
-                              onTap: _isLoading
+                              onTap: (_isLoading || _isPickingRemote)
                                   ? null
                                   : () => _loadRemoteSubtitle(context),
                               padding: const EdgeInsets.symmetric(

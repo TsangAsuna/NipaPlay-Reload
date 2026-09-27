@@ -439,6 +439,7 @@ class SubtitleManager extends ChangeNotifier {
     required bool isActive,
     String? displayName,
     bool deactivateOthers = true,
+    bool appendAtEnd = false,
   }) async {
     try {
       if (subtitlePath.isEmpty) return;
@@ -499,14 +500,21 @@ class SubtitleManager extends ChangeNotifier {
       }
 
       final now = DateTime.now().millisecondsSinceEpoch;
-      subtitles.insert(0, <String, dynamic>{
+      final newEntry = <String, dynamic>{
         'path': subtitlePath,
         // 缓存文件名是哈希，优先用调用方登记的原名
         'name': displayName ?? p.basename(subtitlePath),
         'type': p.extension(subtitlePath).toLowerCase().replaceFirst('.', ''),
         'addTime': now,
         'isActive': isActive,
-      });
+      };
+      if (appendAtEnd) {
+        // 叠挂条目追加到尾部：保持既有条目顺序，避免菜单打开期间重排
+        // 列表导致面板按 index 写激活标记时错位（"勾 A 播 B"）。
+        subtitles.add(newEntry);
+      } else {
+        subtitles.insert(0, newEntry);
+      }
 
       await prefs.setString(subtitlesKey, json.encode(subtitles));
 
@@ -805,12 +813,17 @@ class SubtitleManager extends ChangeNotifier {
     });
     // 叠挂条目同步持久化进 external_subtitles 列表（带原名），轨道菜单
     // 从该列表读取，缺了这一步菜单里看不到叠挂的字幕。不动激活状态。
+    // 注意：叠挂条目 append 到尾部（isActive:false），不 insert(0)——
+    // insert(0) 会在菜单打开期间重排 prefs 列表，而 cupertino 面板的
+    // 勾选处理按 index 写激活标记、按 path 挂播放器，重排后 index 与
+    // 面板内存副本错位，出现"勾 A 播 B"的语言反转。
     unawaited(_persistExternalSubtitleSelection(
       videoPath: _currentVideoPath ?? '',
       subtitlePath: path,
       isActive: false,
       displayName: displayNameForPath(path),
       deactivateOthers: false,
+      appendAtEnd: true,
     ));
     onSubtitleTrackChanged();
     notifyListeners();

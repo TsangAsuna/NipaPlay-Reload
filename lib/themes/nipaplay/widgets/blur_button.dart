@@ -11,7 +11,10 @@ Color get _nipaAccentColor => AppAccentColors.current;
 class BlurButton extends StatefulWidget {
   final IconData? icon;
   final String text;
-  final VoidCallback onTap;
+
+  /// 为 null 时按钮禁用（无点击响应、无悬停缩放），与 iOS 端
+  /// `onPressed: isLoading ? null : handler` 的语义一致。
+  final VoidCallback? onTap;
   final double iconSize;
   final double fontSize;
   final EdgeInsetsGeometry padding;
@@ -66,18 +69,23 @@ class _BlurButtonState extends State<BlurButton> {
         (widget.flatStyle || useThemeStyle
             ? theme.colorScheme.onSurface
             : Colors.white.withOpacity(0.8));
-    final hoverForegroundColor = widget.hoverForegroundColor ??
-        (widget.flatStyle || useThemeStyle ? _nipaAccentColor : Colors.white);
+    // 悬停/聚焦高亮色：禁用态不使用（保持 baseForegroundColor 半透明）。
+    final bool disabled = widget.onTap == null;
     final effectiveForegroundColor =
-        (_isHovered || _isFocused) ? hoverForegroundColor : baseForegroundColor;
+        disabled || (_isHovered || _isFocused)
+            ? baseForegroundColor.withValues(
+                alpha: disabled ? 0.45 : baseForegroundColor.a)
+            : baseForegroundColor;
 
     Widget buttonContent = MouseRegion(
       onEnter: (_) {
+        if (disabled) return;
         setState(() {
           _isHovered = true;
         });
       },
       onExit: (_) {
+        if (disabled) return;
         setState(() {
           _isHovered = false;
         });
@@ -87,6 +95,7 @@ class _BlurButtonState extends State<BlurButton> {
         borderRadius: borderRadius,
         useThemeStyle: useThemeStyle,
         effectiveForegroundColor: effectiveForegroundColor,
+        disabled: disabled,
       ),
     );
 
@@ -109,6 +118,7 @@ class _BlurButtonState extends State<BlurButton> {
     required BorderRadius borderRadius,
     required bool useThemeStyle,
     required Color effectiveForegroundColor,
+    required bool disabled,
   }) {
     final text = AnimatedDefaultTextStyle(
       duration: const Duration(milliseconds: 200),
@@ -147,12 +157,14 @@ class _BlurButtonState extends State<BlurButton> {
       type: MaterialType.transparency,
       child: InkWell(
         onTap: widget.onTap,
-        onFocusChange: (focused) {
-          if (_isFocused == focused) return;
-          setState(() {
-            _isFocused = focused;
-          });
-        },
+        onFocusChange: disabled
+            ? null
+            : (focused) {
+                if (_isFocused == focused) return;
+                setState(() {
+                  _isFocused = focused;
+                });
+              },
         borderRadius: borderRadius,
         overlayColor: WidgetStateProperty.all(Colors.transparent),
         splashColor: Colors.transparent,
@@ -162,7 +174,9 @@ class _BlurButtonState extends State<BlurButton> {
         child: Padding(
           padding: widget.padding,
           child: AnimatedScale(
-            scale: (_isHovered || _isFocused) ? widget.hoverScale : 1.0,
+            scale: !disabled && (_isHovered || _isFocused)
+                ? widget.hoverScale
+                : 1.0,
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOutCubic,
             child: row,
@@ -170,7 +184,6 @@ class _BlurButtonState extends State<BlurButton> {
         ),
       ),
     );
-
     if (widget.flatStyle) {
       if (widget.width == null) {
         return content;

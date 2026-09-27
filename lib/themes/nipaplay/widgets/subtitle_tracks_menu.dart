@@ -646,7 +646,10 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
                           BlurButton(
                             icon: Icons.add_circle_outline,
                             text: "加载本地字幕文件",
-                            onTap: () => _loadExternalSubtitle(context),
+                            // 加载中禁用按钮（iOS 端 onPressed: isLoading ? null : ... 同语义）
+                            onTap: _isLoading
+                                ? null
+                                : () => _loadExternalSubtitle(context),
                             padding: const EdgeInsets.symmetric(
                                 vertical: 12, horizontal: 16),
                             margin: const EdgeInsets.symmetric(horizontal: 0),
@@ -661,7 +664,9 @@ class _SubtitleTracksMenuState extends State<SubtitleTracksMenu> {
                             BlurButton(
                               icon: Icons.cloud_download_outlined,
                               text: "从远程媒体库加载字幕",
-                              onTap: () => _loadRemoteSubtitle(context),
+                              onTap: _isLoading
+                                  ? null
+                                  : () => _loadRemoteSubtitle(context),
                               padding: const EdgeInsets.symmetric(
                                   vertical: 12, horizontal: 16),
                               margin: const EdgeInsets.symmetric(horizontal: 0),

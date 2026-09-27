@@ -292,6 +292,9 @@ class _SubtitleListMenuState extends State<SubtitleListMenu> {
     _visibleEntries =
         _allSubtitleEntries.sublist(_windowStartIndex, windowEndIndex);
 
+    // 设置初始高亮局部索引（否则首次打开无高亮；cupertino 版同此）
+    _currentSubtitleIndex = centerIndex - _windowStartIndex;
+
     // 设置滚动位置到当前时间对应的字幕
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToCurrentItem(centerIndex, animated: false);
@@ -426,7 +429,10 @@ class _SubtitleListMenuState extends State<SubtitleListMenu> {
     }
   }
 
-  // 更新可见窗口
+  // 更新可见窗口（与 cupertino_subtitle_list_pane 行为对齐）：
+  // 完全替换窗口内容并同步重算高亮局部索引。不做"相对滚动位置恢复"的
+  // jumpTo——那次程序化滚动会再次触发监听、把高亮推回视口之外，形成
+  // "视口 9 条来回跳动"；定位交给 _scrollToCurrentItem 的 ensureVisible。
   void _updateVisibleWindow(int newStartIndex) {
     if (_isLoadingWindow || _allSubtitleEntries.isEmpty) return;
 
@@ -434,51 +440,20 @@ class _SubtitleListMenuState extends State<SubtitleListMenu> {
       _isLoadingWindow = true;
     });
 
-    // 边界检查
-    newStartIndex = newStartIndex.clamp(0, _allSubtitleEntries.length - 1);
+    final int maxStart = _allSubtitleEntries.length - 1;
+    newStartIndex = newStartIndex.clamp(0, maxStart);
+    final int newEndIndex =
+        (newStartIndex + _windowSize).clamp(0, _allSubtitleEntries.length);
 
-    // 计算窗口结束索引，允许窗口增长
-    int newEndIndex =
-        (newStartIndex + _windowSize * 2).clamp(0, _allSubtitleEntries.length);
-
-    // 保持当前滚动位置的相对索引
-    final currentScrollPosition =
-        _scrollController.hasClients ? _scrollController.position.pixels : 0;
-    final currentEstimatedIndex =
-        (currentScrollPosition / _estimatedItemHeight).floor();
-    final relativePosition = currentEstimatedIndex - _windowStartIndex;
-
-    // 更新窗口索引和可见条目
     setState(() {
-      // 如果是新窗口，完全替换
-      if (newStartIndex != _windowStartIndex) {
-        _windowStartIndex = newStartIndex;
-        _visibleEntries =
-            _allSubtitleEntries.sublist(newStartIndex, newEndIndex);
-      }
-      // 如果是追加内容（向下滚动）
-      else if (newEndIndex > _windowStartIndex + _visibleEntries.length) {
-        // 只添加新内容
-        final additionalEntries = _allSubtitleEntries.sublist(
-            _windowStartIndex + _visibleEntries.length, newEndIndex);
-        _visibleEntries.addAll(additionalEntries);
-      }
-
+      _windowStartIndex = newStartIndex;
+      _visibleEntries =
+          _allSubtitleEntries.sublist(newStartIndex, newEndIndex);
       _isLoadingWindow = false;
+      _currentSubtitleIndex = _currentTimeMs == 0
+          ? -1
+          : _findNearestSubtitleIndex(_currentTimeMs) - _windowStartIndex;
     });
-
-    // 如果是窗口替换，保持相对滚动位置
-    if (newStartIndex != _windowStartIndex && relativePosition >= 0) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          final newScrollPosition =
-              (relativePosition + newStartIndex) * _estimatedItemHeight;
-          if (newScrollPosition != currentScrollPosition) {
-            _scrollController.jumpTo(newScrollPosition);
-          }
-        }
-      });
-    }
   }
 
   // 找到离当前时间最近的字幕索引

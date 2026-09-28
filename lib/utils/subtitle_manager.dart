@@ -438,12 +438,9 @@ class SubtitleManager extends ChangeNotifier {
     required String subtitlePath,
     required bool isActive,
     String? displayName,
-    bool deactivateOthers = true,
-    bool appendAtEnd = false,
   }) async {
     try {
       if (subtitlePath.isEmpty) return;
-      if (videoPath.isEmpty) return;
       if (!File(subtitlePath).existsSync()) return;
 
       final prefs = await SharedPreferences.getInstance();
@@ -467,8 +464,6 @@ class SubtitleManager extends ChangeNotifier {
         }
       }
 
-      final hadActiveEntry = subtitles.any((s) => s['isActive'] == true);
-
       // 移除同路径条目，并把当前字幕置顶（方便选择）
       subtitles.removeWhere((s) => s['path'] == subtitlePath);
 
@@ -491,37 +486,27 @@ class SubtitleManager extends ChangeNotifier {
         }
       }
 
-      // 叠挂（deactivateOthers=false）不动已有激活条目，避免把主字幕的
-      // 激活标记顶掉；激活主字幕时才全列表清激活。
-      if (deactivateOthers) {
-        for (final s in subtitles) {
-          s['isActive'] = false;
-        }
+      // 将所有字幕设为非激活
+      for (final s in subtitles) {
+        s['isActive'] = false;
       }
 
       final now = DateTime.now().millisecondsSinceEpoch;
-      final newEntry = <String, dynamic>{
+      subtitles.insert(0, <String, dynamic>{
         'path': subtitlePath,
         // 缓存文件名是哈希，优先用调用方登记的原名
         'name': displayName ?? p.basename(subtitlePath),
         'type': p.extension(subtitlePath).toLowerCase().replaceFirst('.', ''),
         'addTime': now,
         'isActive': isActive,
-      };
-      if (appendAtEnd) {
-        // 叠挂条目追加到尾部：保持既有条目顺序，避免菜单打开期间重排
-        // 列表导致面板按 index 写激活标记时错位（"勾 A 播 B"）。
-        subtitles.add(newEntry);
-      } else {
-        subtitles.insert(0, newEntry);
-      }
+      });
 
       await prefs.setString(subtitlesKey, json.encode(subtitles));
 
       final lastActiveKey = 'last_active_subtitle_$videoHashKey';
       if (isActive) {
         await prefs.setInt(lastActiveKey, 0);
-      } else if (deactivateOthers || !hadActiveEntry) {
+      } else {
         await prefs.remove(lastActiveKey);
       }
       // 此处直写 prefs 绕过了 SubtitleService 的内存缓存（Cupertino 面板
@@ -811,20 +796,6 @@ class SubtitleManager extends ChangeNotifier {
       'isActive': false,
       'isManualSet': false,
     });
-    // 叠挂条目同步持久化进 external_subtitles 列表（带原名），轨道菜单
-    // 从该列表读取，缺了这一步菜单里看不到叠挂的字幕。不动激活状态。
-    // 注意：叠挂条目 append 到尾部（isActive:false），不 insert(0)——
-    // insert(0) 会在菜单打开期间重排 prefs 列表，而 cupertino 面板的
-    // 勾选处理按 index 写激活标记、按 path 挂播放器，重排后 index 与
-    // 面板内存副本错位，出现"勾 A 播 B"的语言反转。
-    unawaited(_persistExternalSubtitleSelection(
-      videoPath: _currentVideoPath ?? '',
-      subtitlePath: path,
-      isActive: false,
-      displayName: displayNameForPath(path),
-      deactivateOthers: false,
-      appendAtEnd: true,
-    ));
     onSubtitleTrackChanged();
     notifyListeners();
   }
@@ -1348,15 +1319,6 @@ class SubtitleManager extends ChangeNotifier {
                 'SubtitleManager: VobSub 主字幕替换为: $replacement');
             saveVideoSubtitleMapping(videoPath, replacement);
             savedSubtitlePath = replacement;
-            // 同步 external_subtitles 列表的激活标记：否则菜单仍高亮
-            // 旧的 VobSub 条目（isActive:true），而实际挂载的是替换后的
-            // 文本字幕——勾选状态与实际播放内容不一致。
-            unawaited(_persistExternalSubtitleSelection(
-              videoPath: videoPath,
-              subtitlePath: replacement,
-              isActive: true,
-              displayName: savedDisplayName ?? p.basename(replacement),
-            ));
           }
         }
         debugPrint('SubtitleManager: 找到保存的字幕映射: $savedSubtitlePath');

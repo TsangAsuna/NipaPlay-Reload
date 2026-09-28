@@ -259,9 +259,6 @@ class _CupertinoSubtitleTracksPaneState
       filePath: filePath,
       index: index,
     );
-    // 重新加载列表：叠挂/替换可能改写过 prefs 列表顺序，内存副本陈旧
-    // 会让下一次按 index 写激活标记时错位（勾 A 播 B）。
-    await _loadExternalSubtitles();
     if (mounted) setState(() {});
   }
 

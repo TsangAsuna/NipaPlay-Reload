@@ -782,12 +782,14 @@ class SubtitleManager extends ChangeNotifier {
     _activeExternalSubtitlePaths.add(path);
     unawaited(_loadPathDisplayState(path));
     if (_shouldRenderExternalSubtitleInApp(path)) {
+      // 叠层字幕（SRT/VTT）：App 内逐条渲染，不影响其它条目
       _activateAppRenderedExternalSubtitle(path);
     } else {
-      // 非叠层类型（远程 ASS/SSA 等）：必须挂到内核字幕轨，否则选中无效果。
-      // 注意：内核轨挂载会重设激活轨，这里不抢占 _currentExternalSubtitlePath
-      // 与激活状态——叠挂条目进列表供手动切换，屏幕仍显示原先激活的字幕。
-      _loadExternalSubtitleIntoPlayer(path, ++_subtitleLoadToken);
+      // 内核轨字幕（ASS/SSA 等）：只登记进堆栈，**不抢占当前激活的字幕**
+      // （不再 setMedia）。叠挂 = 进入轨道列表供用户切换；画面继续显示
+      // 原先激活的字幕，用户从菜单点选时才经 setExternalSubtitle 真正
+      // 挂载。此前每次叠挂都 setMedia，导致叠挂结束后内核激活的是最后
+      // 一条叠挂字幕（勾 SC 播 TC 的根因）。
     }
     unawaited(preloadSubtitleFile(path));
     updateSubtitleTrackInfo('external_subtitle', <String, dynamic>{

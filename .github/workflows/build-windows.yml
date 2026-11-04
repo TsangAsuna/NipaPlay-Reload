@@ -28,6 +28,9 @@ jobs:
       # by the build-windows action, so fvp must trust it and skip downloads.
       FVP_DEPS_LATEST: 0
       ERIKA_PREBUILT: "1"
+      # build-windows action queries api.github.com for mdk-sdk/mpv release
+      # metadata; unauthenticated calls share a per-IP quota and can 403.
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

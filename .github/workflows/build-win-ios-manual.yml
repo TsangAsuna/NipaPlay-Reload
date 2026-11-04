@@ -1,0 +1,35 @@
+name: Build Windows & iOS Unsigned IPA (Manual)
+
+# 手动触发 + 分支推送触发：只构建 Windows x64 包与未签名 iOS IPA，
+# 产物以 Actions artifacts 上传，不创建 Release、不上架、不签名。
+# 本分支的验证构建统一走这个工作流，不在本地占用磁盘做 Windows 构建。
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - pr/webdav-platform-audit
+      - feature/webdav-audit
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'Documentation/**'
+
+permissions:
+  actions: read
+  contents: read
+
+# 同一分支再次推送时取消上一次仍在跑的构建，省 runner 时长
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  Build-Windows:
+    name: Build Windows x64
+    uses: ./.github/workflows/build-windows.yml
+
+  Build-iOS:
+    name: Build iOS unsigned IPA
+    uses: ./.github/workflows/build-ios.yml
+    with:
+      upload-to-app-store: false

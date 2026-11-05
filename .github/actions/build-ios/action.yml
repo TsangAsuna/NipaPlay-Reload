@@ -21,12 +21,21 @@ runs:
         df -h
 
         MACOS_VERSION="$(sw_vers -productVersion)"
-        if [[ "${MACOS_VERSION}" != 26.* ]]; then
-          echo "❌ 错误：iOS IPA 构建必须运行在 macOS 26，当前系统为 ${MACOS_VERSION}"
+        # macOS 26 优先；15 兜底——macos-26 池子故障期间（actions/runner-images#13882）
+        # 排队 15 分钟即被平台取消，macos-15 仍正常分配 runner。
+        if [[ "${MACOS_VERSION}" != 26.* && "${MACOS_VERSION}" != 15.* ]]; then
+          echo "❌ 错误：iOS IPA 构建仅支持 macOS 26/15，当前系统为 ${MACOS_VERSION}"
           exit 1
         fi
-        
+
         echo "=== Xcode环境检查 ==="
+        # 镜像上可能装了多个 Xcode：选版本号最大的，保证 macOS 15 上也能
+        # 用到可用的最新 SDK（Xcode 26 系列可在 macOS 15 上运行）。
+        NEWEST_XCODE="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1 || true)"
+        if [ -n "${NEWEST_XCODE}" ] && [ "${NEWEST_XCODE}" != "/Applications/Xcode.app" ]; then
+          echo "选择最新 Xcode: ${NEWEST_XCODE}"
+          sudo xcode-select -s "${NEWEST_XCODE}" || true
+        fi
         if command -v xcodebuild &> /dev/null; then
           echo "✅ Xcode已安装"
           xcodebuild -version

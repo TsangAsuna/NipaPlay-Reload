@@ -50,7 +50,9 @@ permissions:
 jobs:
   build:
     name: Build iOS IPA
-    runs-on: macos-26
+    # macos-26 池子故障期间（actions/runner-images#13882）排队 15 分钟即被
+    # 平台取消；macos-15 正常分配 runner，构建 action 已兼容两个镜像。
+    runs-on: macos-15
     timeout-minutes: 150
     outputs:
       version: ${{ steps.setup.outputs.version }}

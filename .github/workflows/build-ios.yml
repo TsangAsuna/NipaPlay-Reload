@@ -50,10 +50,7 @@ permissions:
 jobs:
   build:
     name: Build iOS IPA
-    # macos-26 hosted jobs are being auto-cancelled after ~15 min queued
-    # with no runner (actions/runner-images#13882 / community#211885);
-    # macos-15 still picks up runners. Revisit once the incident clears.
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 150
     outputs:
       version: ${{ steps.setup.outputs.version }}

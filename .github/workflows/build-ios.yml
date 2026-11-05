@@ -50,9 +50,10 @@ permissions:
 jobs:
   build:
     name: Build iOS IPA
-    # macos-26 池子故障期间（actions/runner-images#13882）排队 15 分钟即被
-    # 平台取消；macos-15 正常分配 runner，构建 action 已兼容两个镜像。
-    runs-on: macos-15
+    # 工程依赖 Xcode 27（adaptive_platform_ui 的 iOS 27 SDK API），只能跑
+    # macos-26 镜像。该池子 2026-11 起间歇性故障（runner-images#13882），
+    # 期间由外部按需重试触发。
+    runs-on: macos-26
     timeout-minutes: 150
     outputs:
       version: ${{ steps.setup.outputs.version }}

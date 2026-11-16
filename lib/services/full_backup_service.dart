@@ -678,7 +678,13 @@ class FullBackupService {
             } else if (value is int) {
               await prefs.setInt(key, value);
             } else if (value is double) {
-              await prefs.setDouble(key, value);
+              // 字号缩放类设置钳制到运行时边界，防止备份文件带出越界值
+              // （读取侧 _loadSubtitleSettings 有钳制，这里补写入侧）。
+              var doubleValue = value;
+              if (key == 'subtitle_scale' || key == 'srt_subtitle_scale') {
+                doubleValue = doubleValue.clamp(0.5, 2.5);
+              }
+              await prefs.setDouble(key, doubleValue);
             } else if (value is String) {
               await prefs.setString(key, value);
             } else if (value is List) {

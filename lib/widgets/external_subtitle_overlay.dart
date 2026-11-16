@@ -1057,6 +1057,8 @@ class _OutlinedSubtitleText extends StatelessWidget {
       text,
       textAlign: textAlign,
       softWrap: true,
+      // 字幕字号由样式滑块+视频宽度决定并已钳制，系统级字体放大不再叠加。
+      textScaler: TextScaler.noScaling,
       style: fillStyle,
     );
 
@@ -1071,6 +1073,7 @@ class _OutlinedSubtitleText extends StatelessWidget {
           text,
           textAlign: textAlign,
           softWrap: true,
+          textScaler: TextScaler.noScaling,
           style: borderStyle,
         ),
         fillText,

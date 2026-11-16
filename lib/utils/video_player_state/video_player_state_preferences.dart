@@ -2527,6 +2527,26 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     return null;
   }
 
+  /// 当前生效的内嵌字幕轨是否为 ASS/SSA 脚本轨（脚本自带尺寸与样式）。
+  /// auto 覆盖模式遇到脚本轨不应用 sub-scale、sub-ass-override 保持 no，
+  /// 否则字号滑块≠100% 时 ASS 会被 sub-scale 整体放大，叠加竖排窗口
+  /// 缩放复利可放大数倍（"字幕突然变得非常大"）。
+  bool _activeEmbeddedSubtitleIsScriptAss() {
+    if (player.getPlayerKernelName() != 'Media Kit') return false;
+    if (isKernelRenderedExternalAssActive) return true;
+    try {
+      final subtitles = player.mediaInfo.subtitle;
+      if (subtitles == null || subtitles.isEmpty) return false;
+      for (final index in player.activeSubtitleTracks) {
+        if (index < 0 || index >= subtitles.length) continue;
+        final codec =
+            (subtitles[index].metadata['codec'] ?? '').toString().toLowerCase();
+        if (codec == 'ass' || codec == 'ssa') return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   Future<void> applySubtitleStylePreference() async {
     if (kIsWeb || _isDisposed) return;
     // 叠层字幕(SRT/VTT)样式在 Flutter UI 层，不设内核属性（sub-margin-x 限制0~300，拖拽负值报错/卡热切换）；
@@ -2547,12 +2567,19 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
           playerKernelName != 'Erika') {
               return;
             }
+      // auto 覆盖模式 + ASS/SSA 脚本轨（Media Kit）：脚本自带尺寸，不写
+      // sub-scale、sub-ass-override 保持 no——避免脚本字号被用户缩放放大。
+      final assScriptOwnsSize = playerKernelName == 'Media Kit' &&
+          _subtitleOverrideMode == SubtitleStyleOverrideMode.auto &&
+          _activeEmbeddedSubtitleIsScriptAss();
             // mdk 属性名是 subtitle.scale（sub-scale 是 mpv 的）——之前用错
                   // 导致 mdk 内嵌轨字号设置不生效（默认 22 小字号，对比 libmpv 明显小）
+      if (!assScriptOwnsSize) {
                   player.setProperty(
                     playerKernelName == 'MDK' ? 'subtitle.scale' : 'sub-scale',
                     _subtitleScale.toStringAsFixed(2),
                   );
+      }
                   // mdk 内嵌轨（srt/text）字号基准调大（默认 22 太小，对齐 libmpv 视觉）
                   if (playerKernelName == 'MDK') {
                     try {
@@ -2611,7 +2638,9 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
         player.setProperty('sub-font', resolvedDefaultFont);
         player.setProperty(
           'sub-ass-override',
-          _subtitleOverrideModeToMpv(_subtitleOverrideMode),
+          assScriptOwnsSize
+              ? 'no'
+              : _subtitleOverrideModeToMpv(_subtitleOverrideMode),
         );
         return;
       }

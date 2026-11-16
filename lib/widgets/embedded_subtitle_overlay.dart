@@ -71,6 +71,9 @@ class EmbeddedSubtitleOverlay extends StatelessWidget {
                         text,
                         textAlign: _resolveTextAlign(videoState.subtitleAlignX),
                         softWrap: true,
+                        // 字幕字号由样式滑块+视频宽度决定并已钳制，系统级
+                        // 字体放大不再叠加（否则最大字号可达数百物理像素）。
+                        textScaler: TextScaler.noScaling,
                         style: fillStyle.copyWith(
                           foreground: Paint()
                             ..style = PaintingStyle.stroke
@@ -85,6 +88,7 @@ class EmbeddedSubtitleOverlay extends StatelessWidget {
                         text,
                         textAlign: _resolveTextAlign(videoState.subtitleAlignX),
                         softWrap: true,
+                        textScaler: TextScaler.noScaling,
                         style: fillStyle,
                       ),
                     ],
@@ -93,6 +97,7 @@ class EmbeddedSubtitleOverlay extends StatelessWidget {
                     text,
                     textAlign: _resolveTextAlign(videoState.subtitleAlignX),
                     softWrap: true,
+                    textScaler: TextScaler.noScaling,
                     style: fillStyle,
                   );
 

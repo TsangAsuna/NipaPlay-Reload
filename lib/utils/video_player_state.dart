@@ -810,10 +810,12 @@ int _exactEndStreak = 0;
 
   // 整块叠层的自愈状态：文本迟迟不出字（位图轨/轮询失效/mpv 侧丢轨）时
   // 回退内核渲染（sub-visibility=yes），轮询一旦拿到文本再切回叠层。
+  // 回退判定是惰性的：记录应用 'no' 的时间戳，由轮询心跳比较超时，
+  // 不持有长活 Timer（flutter_test 的 !timersPending 不变量会卡测试）。
   bool _embeddedOverlayFallbackActive = false;
   bool _embeddedOverlayEverGotText = false;
+  int _embeddedOverlayAppliedNoMs = 0;
   int _lastEmbeddedOverlayDebugLogMs = 0;
-  Timer? _embeddedOverlayFallbackTimer;
   Timer? _pausedOverlayPollTimer;
 
   // 弹幕轨道显示区域设置
@@ -1988,7 +1990,6 @@ int _exactEndStreak = 0;
     _hideMouseTimer?.cancel();
     _autoHideTimer?.cancel();
     _screenshotTimer?.cancel();
-    _embeddedOverlayFallbackTimer?.cancel();
     _pausedOverlayPollTimer?.cancel();
     _spoilerDanmakuAnalysisDebounceTimer?.cancel();
     _spoilerDanmakuAnalysisDebounceTimer = null;

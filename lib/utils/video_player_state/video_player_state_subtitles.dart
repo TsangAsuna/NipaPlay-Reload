@@ -320,7 +320,7 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
     // 会因为 guard 不生效，表现为"开关无效"）。
     _embeddedOverlayFallbackActive = false;
     _embeddedOverlayEverGotText = false;
-    _cancelEmbeddedOverlayFallbackWatch();
+    _embeddedOverlayAppliedNoMs = 0;
     applyEmbeddedSubtitleOverlayKernelState();
     _notifyListeners();
   }
@@ -378,9 +378,9 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
           !_isBitmapSubtitleTrackActive()) {
         player.setProperty('sub-visibility', 'no');
         _embeddedOverlayEverGotText = false;
-        _startEmbeddedOverlayFallbackWatch();
+        _embeddedOverlayAppliedNoMs = DateTime.now().millisecondsSinceEpoch;
       } else {
-        _cancelEmbeddedOverlayFallbackWatch();
+        _embeddedOverlayAppliedNoMs = 0;
         player.setProperty('sub-visibility', 'yes');
         if (_embeddedSubtitleOverlayText.isNotEmpty) {
           _embeddedSubtitleOverlayText = '';
@@ -412,30 +412,24 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
     return false;
   }
 
-  /// 回退武装：应用 sub-visibility=no 后启动墙钟，超时仍零文本就回退内核
-  /// 渲染（可逆——轮询拿到文本后由 [_pollEmbeddedSubtitleOverlayText]
-  /// 自动切回叠层）。每次重新应用 'no' 都会重置。
-  void _startEmbeddedOverlayFallbackWatch() {
-    _cancelEmbeddedOverlayFallbackWatch();
-    if (kIsWeb || _isDisposed) return;
-    _embeddedOverlayFallbackTimer = Timer(
-      _embeddedOverlayFallbackAfter,
-      _applyEmbeddedOverlayKernelFallback,
-    );
-  }
-
-  void _cancelEmbeddedOverlayFallbackWatch() {
-    _embeddedOverlayFallbackTimer?.cancel();
-    _embeddedOverlayFallbackTimer = null;
-  }
-
-  void _applyEmbeddedOverlayKernelFallback() {
+  /// 回退判定（惰性）：应用 sub-visibility=no 后超过
+  /// [_embeddedOverlayFallbackAfter] 仍零文本就回退内核渲染（可逆——
+  /// 轮询拿到文本后由 [_pollEmbeddedSubtitleOverlayText] 自动切回叠层）。
+  /// 由轮询心跳调用；不持有长活 Timer，避免 flutter_test 的
+  /// !timersPending 不变量失败。
+  void _maybeApplyEmbeddedOverlayKernelFallback() {
     if (_isDisposed ||
         kIsWeb ||
         !_embeddedSubtitleOverlayMode ||
         _embeddedOverlayFallbackActive ||
         _embeddedOverlayEverGotText ||
-        isKernelRenderedExternalAssActive) {
+        isKernelRenderedExternalAssActive ||
+        _embeddedOverlayAppliedNoMs <= 0) {
+      return;
+    }
+    final elapsed = DateTime.now().millisecondsSinceEpoch -
+        _embeddedOverlayAppliedNoMs;
+    if (elapsed < _embeddedOverlayFallbackAfter.inMilliseconds) {
       return;
     }
     _embeddedOverlayFallbackActive = true;
@@ -492,7 +486,7 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
   void _resetEmbeddedOverlayPipelineState() {
     _embeddedOverlayEverGotText = false;
     _embeddedOverlayFallbackActive = false;
-    _cancelEmbeddedOverlayFallbackWatch();
+    _embeddedOverlayAppliedNoMs = 0;
   }
 
   /// Throttled poll entry from the position ticker (~8Hz, notifies only on
@@ -535,7 +529,7 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
       if (trimmed.isNotEmpty) {
         if (!_embeddedOverlayEverGotText) {
           _embeddedOverlayEverGotText = true;
-          _cancelEmbeddedOverlayFallbackWatch();
+          _embeddedOverlayAppliedNoMs = 0;
         }
         if (_embeddedOverlayFallbackActive) {
           // 回退期间文本恢复：切回整块叠层（先清残留文本再关内核渲染，
@@ -548,19 +542,23 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
           _notifyListeners();
           return;
         }
-      } else if (kDebugMode && _embeddedSubtitleOverlayMode) {
-        // 诊断（3s 节流）：勾选了轨却黑屏时，这条日志能区分
-        // "mpv 侧没选上轨（sid=no）" 还是 "sub-text 正常为空（行间隙）"。
-        final nowMs = DateTime.now().millisecondsSinceEpoch;
-        if (nowMs - _lastEmbeddedOverlayDebugLogMs > 3000) {
-          _lastEmbeddedOverlayDebugLogMs = nowMs;
-          final sid = await player.getLiveProperty('sid') ?? '';
-          final visibility =
-              await player.getLiveProperty('sub-visibility') ?? '';
-          debugPrint(
-            '[整块叠层] sub-text 为空: sid=$sid sub-visibility=$visibility '
-            'tracks=${player.activeSubtitleTracks}',
-          );
+      } else {
+        // 文本迟迟不出字（位图轨/轮询失效/mpv 侧丢轨）：惰性回退内核渲染。
+        _maybeApplyEmbeddedOverlayKernelFallback();
+        if (kDebugMode && _embeddedSubtitleOverlayMode) {
+          // 诊断（3s 节流）：勾选了轨却黑屏时，这条日志能区分
+          // "mpv 侧没选上轨（sid=no）" 还是 "sub-text 正常为空（行间隙）"。
+          final nowMs = DateTime.now().millisecondsSinceEpoch;
+          if (nowMs - _lastEmbeddedOverlayDebugLogMs > 3000) {
+            _lastEmbeddedOverlayDebugLogMs = nowMs;
+            final sid = await player.getLiveProperty('sid') ?? '';
+            final visibility =
+                await player.getLiveProperty('sub-visibility') ?? '';
+            debugPrint(
+              '[整块叠层] sub-text 为空: sid=$sid sub-visibility=$visibility '
+              'tracks=${player.activeSubtitleTracks}',
+            );
+          }
         }
       }
       if (trimmed == _embeddedSubtitleOverlayText) return;

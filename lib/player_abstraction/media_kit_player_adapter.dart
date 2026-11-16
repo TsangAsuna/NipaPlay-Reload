@@ -1428,6 +1428,9 @@ class MediaKitPlayerAdapter
               'id': trackIdStr,
               'title': normInfo.title, // Store normalized title in metadata too
               'language': normInfo.language, // Store normalized language
+              // mpv track-list 的 codec（hdmv_pgs_subtitle/dvd_subtitle 等）：
+              // 整块叠层模式据此识别位图字幕轨（sub-text 恒为空，无法轮询）。
+              'codec': track.codec ?? '',
               'original_mk_title':
                   track.title ?? '', // Keep original for reference
               'original_mk_language':

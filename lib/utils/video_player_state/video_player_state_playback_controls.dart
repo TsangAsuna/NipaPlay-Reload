@@ -590,6 +590,8 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
       _pausedPlaybackTimeMs = _playbackTimeMs.value;
       // 停止UI更新Ticker，避免继续产帧
       _uiUpdateTicker?.stop();
+      // 整块叠层：ticker 已停，暂停期改由独立计时器刷新当前字幕行
+      _syncEmbeddedOverlayPausedTimer();
       // _setWakelockSafely(false); // Already handled by _setStatus
     }
   }

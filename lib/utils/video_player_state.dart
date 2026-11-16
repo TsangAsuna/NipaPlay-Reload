@@ -808,6 +808,14 @@ int _exactEndStreak = 0;
   String _embeddedSubtitleOverlayText = '';
   int _lastEmbeddedSubTextPollMs = 0;
 
+  // 整块叠层的自愈状态：文本迟迟不出字（位图轨/轮询失效/mpv 侧丢轨）时
+  // 回退内核渲染（sub-visibility=yes），轮询一旦拿到文本再切回叠层。
+  bool _embeddedOverlayFallbackActive = false;
+  bool _embeddedOverlayEverGotText = false;
+  int _lastEmbeddedOverlayDebugLogMs = 0;
+  Timer? _embeddedOverlayFallbackTimer;
+  Timer? _pausedOverlayPollTimer;
+
   // 弹幕轨道显示区域设置
   double _danmakuDisplayArea =
       1.0; // 默认全屏显示（0.0=单行，1.0=全屏，0.67=2/3，0.33=1/3，0.25=1/4，0.125=1/8）
@@ -1980,6 +1988,8 @@ int _exactEndStreak = 0;
     _hideMouseTimer?.cancel();
     _autoHideTimer?.cancel();
     _screenshotTimer?.cancel();
+    _embeddedOverlayFallbackTimer?.cancel();
+    _pausedOverlayPollTimer?.cancel();
     _spoilerDanmakuAnalysisDebounceTimer?.cancel();
     _spoilerDanmakuAnalysisDebounceTimer = null;
     _spoilerDanmakuPendingAnalysisHash = null;

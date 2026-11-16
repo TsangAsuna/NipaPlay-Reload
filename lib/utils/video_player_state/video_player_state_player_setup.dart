@@ -835,6 +835,7 @@ extension VideoPlayerStatePlayerSetup on VideoPlayerState {
       // new video and drop the previous video's residue text (polling
       // refills it).
       _embeddedSubtitleOverlayText = '';
+      _resetEmbeddedOverlayPipelineState();
       applyEmbeddedSubtitleOverlayKernelState();
       if ((previousSubtitleDelay - subtitleDelaySeconds).abs() >= 0.0001) {
         unawaited(applySubtitleStylePreference());

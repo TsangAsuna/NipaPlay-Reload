@@ -354,7 +354,7 @@ packages:
     dependency: "direct main"
     description:
       name: erika_flutter
-      sha256: 64af0ea806f796693985045c677ab86a6b0fbd38ceaf8d00af9a8e119b18ca12
+      sha256: "64af0ea806f796693985045c677ab86a6b0fbd38ceaf8d00af9a8e119b18ca12"
       url: "https://pub.dev"
     source: hosted
     version: "0.3.7"

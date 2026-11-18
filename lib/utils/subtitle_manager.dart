@@ -2071,7 +2071,10 @@ class SubtitleManager extends ChangeNotifier {
     }
 
     final playerSubInfo = _player.mediaInfo.subtitle![trackIndex];
-    _lastSelectedEmbeddedTrackIndex = trackIndex;
+    // 注意：这里只刷新轨道信息（菜单文案），不代表用户选择了这条轨。
+    // 不能写 _lastSelectedEmbeddedTrackIndex——updateAllSubtitleTracksInfo
+    // 会按索引遍历，最后一条会把"用户选择"覆盖成位图轨，导致叠层模式
+    // 被误判关闭。用户选择只走 selectEmbeddedSubtitleTrack。
     debugPrint(
       'SubtitleManager: updateEmbeddedSubtitleTrack - Called for trackIndex: $trackIndex',
     );

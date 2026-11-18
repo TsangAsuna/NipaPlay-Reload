@@ -515,7 +515,8 @@ class MediaKitPlayerAdapter
       final applied = raw?.toString() ?? '';
       if (applied.isEmpty) {
         debugPrint('[mpv] msg-level 回读为空：诊断可能只拿到默认级别');
-      } else if (!applied.contains('ass') && !applied.contains('all')) {
+      } else if (!applied.contains('ass=v') &&
+          !applied.contains('fontselect=v')) {
         debugPrint('[mpv] msg-level 未按预期生效: "$applied"');
       } else {
         debugPrint('[mpv] msg-level 已生效: "$applied"');
@@ -1172,15 +1173,8 @@ class MediaKitPlayerAdapter
     );
 
     _player.stream.error.listen((error) {
-      debugPrint('MediaKit错误: $error');
-      // iOS 为了看 mpv 日志把 error 级日志打开了，media_kit 会把每条
-      // error 级日志合成成 stream.error。这类"日志噪声"不能再触发加载
-      // 失败判定或"请启用转码"提示（改动前 iOS 压根收不到这些事件）。
-      // media_kit 自己通过 _logError 上报的错误形如 "error: <原因> ..."，
-      // 以此区分。
-      if (_ignoreLogDerivedErrors && !error.startsWith('error:')) {
-        return;
-      }
+      // 这条也会进上传日志（UI 的转码提示/失败原因同样取它），先脱敏。
+      debugPrint('MediaKit错误: ${_redactMpvLogText(error)}');
       _recordCurrentMediaLoadError(error);
       _handleStreamingError(error);
     });
@@ -1211,9 +1205,8 @@ class MediaKitPlayerAdapter
       if (!_shouldForwardMpvLogLine(log.prefix, log.level, log.text)) {
         return;
       }
-      final isSevere = log.level == 'error' ||
-          log.level == 'fatal' ||
-          log.level == 'warn';
+      final isSevere =
+          log.level == 'error' || log.level == 'fatal';
       if (!isSevere && _mpvLogLinesForwarded >= 500) {
         if (_mpvLogLinesForwarded == 500) {
           _mpvLogLinesForwarded++;
@@ -1230,31 +1223,41 @@ class MediaKitPlayerAdapter
     });
   }
 
-  /// iOS 上 mpv 日志是默认打开的（见 [_shouldEnableMpvDiagnostics]），
-  /// media_kit 会把 error 级日志合成到 stream.error，需要在事件层过滤。
-  static bool get _ignoreLogDerivedErrors =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
-
+  /// iOS 上 mpv 日志是默认打开的（见 [_shouldEnableMpvDiagnostics]）。
+  /// error 级日志仍会由 media_kit 合成到 stream.error，保持原有错误处理，
+  /// 但打印与落库前统一脱敏。
   static final RegExp _mpvUrlPattern =
-      RegExp(r'''(?:https?|rtsp|rtsps|ftp|smb)://\S+''', caseSensitive: false);
+      RegExp(r'''[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s'"]+''');
+  static final RegExp _mpvSecretPattern = RegExp(
+    r'''(?i)\b(api[_-]?key|access[_-]?token|token|authorization)\b\s*[=:]\s*\S+''',
+  );
+  static final RegExp _mpvBearerPattern =
+      RegExp(r'''(?i)\bBearer\s+[A-Za-z0-9._\-+/=]+''');
 
   /// mpv 会把媒体 URL 原样打出来（`cplayer: Playing:` / `demux: Opening:`），
   /// Emby/Jellyfin 的 `?api_key=<token>` 会因此落进设备日志。
-  /// 保留 scheme/host/path，查询串整体抹掉。
+  /// URL 保留 scheme/host/port/path，查询串整体抹掉；再兜一层裸的
+  /// `key=value` 与 `Authorization: Bearer`。
   static String _redactMpvLogText(String text) {
-    if (!text.contains('://')) {
-      return text;
+    var out = text;
+    if (out.contains('://')) {
+      out = out.replaceAllMapped(_mpvUrlPattern, (match) {
+        final raw = match.group(0) ?? '';
+        final uri = Uri.tryParse(raw);
+        if (uri == null || uri.host.isEmpty) {
+          return '<url>';
+        }
+        final port = uri.hasPort ? ':${uri.port}' : '';
+        return '${uri.scheme}://${uri.host}$port${uri.path}'
+            '${uri.hasQuery ? '?<redacted>' : ''}';
+      });
     }
-    return text.replaceAllMapped(_mpvUrlPattern, (match) {
-      final raw = match.group(0) ?? '';
-      final uri = Uri.tryParse(raw);
-      if (uri == null || uri.host.isEmpty) {
-        return '<url>';
-      }
-      final path = uri.path;
-      return '${uri.scheme}://${uri.host}$path'
-          '${uri.hasQuery ? '?<redacted>' : ''}';
-    });
+    if (out.contains('=') || out.toLowerCase().contains('bearer')) {
+      out = out
+          .replaceAll(_mpvSecretPattern, '<redacted>')
+          .replaceAll(_mpvBearerPattern, 'Bearer <redacted>');
+    }
+    return out;
   }
 
   int _mpvLogLinesForwarded = 0;
@@ -1336,7 +1339,8 @@ class MediaKitPlayerAdapter
     if (_isDisposed || _currentMedia.isEmpty || _mediaReady) {
       return;
     }
-    final message = error.toString();
+    // 这条 error 会一路进 UI 与上传日志，先把 URL 里的 token 抹掉。
+    final message = _redactMpvLogText(error.toString());
     _mediaLoadFailed = true;
     _mediaLoadError = message;
     _mediaLoadErrorRetryable = isRetryableMediaKitLoadError(message);

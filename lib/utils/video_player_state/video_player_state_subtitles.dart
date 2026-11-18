@@ -419,19 +419,21 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
     try {
       final subtitles = player.mediaInfo.subtitle;
       if (subtitles == null || subtitles.isEmpty) return false;
-      final candidates = <int>{
-        ...player.activeSubtitleTracks,
-        subtitleManager.lastSelectedEmbeddedTrackIndex,
-      };
-      for (final index in candidates) {
-        if (index < 0 || index >= subtitles.length) continue;
-        final codec =
-            (subtitles[index].metadata['codec'] ?? '').toString().toLowerCase();
-        if (codec.isEmpty) continue;
-        if (_bitmapSubtitleCodecs.any((bitmap) => codec.startsWith(bitmap))) {
-          return true;
-        }
-      }
+      // 只判定"当前实际生效的那一条"：用户在菜单里的选择优先（适配器
+      // 回写 activeSubtitleTracks 有延迟），没有用户选择时用已生效轨。
+      // 不能把两者并集——列表里只要存在一条位图轨就会把文本轨误判成
+      // 位图轨，叠层模式被静默关掉。
+      final active = player.activeSubtitleTracks;
+      final last = subtitleManager.lastSelectedEmbeddedTrackIndex;
+      final index = (last >= 0 && last < subtitles.length)
+          ? last
+          : (active.isNotEmpty ? active.first : -1);
+      if (index < 0 || index >= subtitles.length) return false;
+      final codec = (subtitles[index].metadata['codec'] ?? '')
+          .toString()
+          .toLowerCase();
+      if (codec.isEmpty) return false;
+      return _bitmapSubtitleCodecs.any((bitmap) => codec.startsWith(bitmap));
     } catch (_) {}
     return false;
   }
@@ -524,6 +526,7 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
           'override=${values['sub-ass-override']} '
           'opacity=${values['sub-opacity']} '
           'font="${values['sub-font']}" '
+          'fontsDir="${values['sub-fonts-dir']}" '
           'embeddedFonts=${values['embeddedfonts']} '
           'speed=${values['speed']} dropped=${values['frame-drop-count']} '
           'mistimed=${values['mistimed-frame-count']} '
@@ -547,14 +550,30 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
     if (kIsWeb || _isDisposed || _silentSubtitleRearmDone) return;
     if (_status != PlayerStatus.playing) return;
     if (player.getPlayerKernelName() != 'Media Kit') return;
-    final progressMs = positionMs ?? player.position.inMilliseconds;
+    final progressMs = positionMs ?? player.position;
+    // 起播/恢复播放后给解复用器与字幕解码器一个落地的窗口：进度没动
+    // 或者刚起来不到 2.5s 都不判定，避免把唯一一次自愈耗在准备阶段。
+    final startMs = _lastPlaybackStartMs;
+    if (startMs <= 0) return;
+    if (DateTime.now().millisecondsSinceEpoch - startMs < 2500) return;
     if (progressMs < 2500) return;
+    // 超过 6s 还没触发说明这条路径不需要自愈（正常出字/无字幕），
+    // 直接收旗，别再每帧去做属性读取。
+    if (progressMs > 6000) {
+      _silentSubtitleRearmDone = true;
+      return;
+    }
     if (player.activeSubtitleTracks.isEmpty) return;
     if (activeExternalSubtitlePaths.isNotEmpty) return;
     unawaited(() async {
       try {
         final text = await player.getLiveProperty('sub-text') ?? '';
-        if (text.isNotEmpty) return;
+        if (text.isNotEmpty) {
+          // 有字说明字幕链路正常，这一集不需要自愈（否则健康轨道也会在
+          // 第一段对白间隙被误判成"没有字幕"触发一次强制重选）。
+          _silentSubtitleRearmDone = true;
+          return;
+        }
         var sid = await player.getLiveProperty('sid') ?? '';
         if (sid.isEmpty || sid == 'no' || sid == 'auto') {
           // mpv 还没把轨道 id 认下来——这时按勾选轨自己解析出目标 id，
@@ -572,7 +591,6 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
         }
         if (_silentSubtitleRearmDone || _isDisposed) return;
         _silentSubtitleRearmDone = true;
-        final previousTracks = List<int>.of(player.activeSubtitleTracks);
         debugPrint(
           '[字幕自愈] ${(progressMs / 1000).toStringAsFixed(1)}s 处仍 0 文本，'
           '强制重选 sid=$sid（等价手动取消再勾选）',
@@ -581,9 +599,9 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
         // 字幕解码器；与用户在 UI 里"取消勾选再打勾"等价，但自动执行一次。
         player.setProperty('sid', 'no');
         player.setProperty('sid', sid);
-        // 适配器收到 sid=no 会先清空勾选状态，恢复镜像避免菜单闪烁/误判。
-        player.activeSubtitleTracks = previousTracks;
         // 重选可能把 sub-visibility 打回默认，按当前模式重新同步一次。
+        // 不要回写 activeSubtitleTracks：适配器的 setter 会再发一次选轨
+        // 请求，可能把刚写进去的 sid 又覆盖掉。
         applyEmbeddedSubtitleOverlayKernelState();
       } catch (_) {}
     }());
@@ -591,15 +609,13 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
 
   /// 从当前勾选的内嵌轨解析 mpv 的 sid（metadata['id']）。适配器把 mpv
   /// 的轨道 id 放在 metadata 里，这里不依赖 mpv 的实时 sid。
+  /// 只认 activeSubtitleTracks：lastSelected 可能是关闭字幕前的残留，
+  /// 盲目回退会把 sid 重选到另一条轨上。
   String? _resolveActiveEmbeddedSubtitleMpvId() {
     try {
       final subtitles = player.mediaInfo.subtitle;
       if (subtitles == null || subtitles.isEmpty) return null;
-      final candidates = <int>{
-        ...player.activeSubtitleTracks,
-        subtitleManager.lastSelectedEmbeddedTrackIndex,
-      };
-      for (final index in candidates) {
+      for (final index in player.activeSubtitleTracks) {
         if (index < 0 || index >= subtitles.length) continue;
         final id = (subtitles[index].metadata['id'] ?? '').toString();
         if (id.isNotEmpty && id != 'no' && id != 'auto') return id;
@@ -618,6 +634,9 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
         !kIsWeb &&
         !_isDisposed &&
         hasVideo &&
+        // 整块叠层只对 Media Kit 生效；Erika/MDK 暂停时没必要每 800ms
+        // 去读一次 sub-text（那边拿不到值，白耗通道）。
+        player.getPlayerKernelName() == 'Media Kit' &&
         _status == PlayerStatus.paused;
     if (!shouldRun) {
       _pausedOverlayPollTimer?.cancel();

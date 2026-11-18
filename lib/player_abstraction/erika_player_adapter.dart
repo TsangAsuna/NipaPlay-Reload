@@ -936,7 +936,8 @@ class ErikaPlayerAdapter
       return;
     }
     await _player.ensureCreated();
-    _nativeFailureDumped = false;
+    // 每次 open 失败都抓日志没有意义（原生调用不可取消，重试会叠加），
+    // 一次性标志只在 setMedia 换媒体时重置。
     try {
       await _player.open(
         _media,
@@ -1734,6 +1735,10 @@ class ErikaPlayerAdapter
         return PlayerUpscalerMode.erikaArtCnnC4F16Ds;
       case ErikaUpscalerMode.off:
         return PlayerUpscalerMode.off;
+      default:
+        // 0.3.7 起 liberika 会新增超分档位（如 artCnnC4F16Dn）。
+        // App 侧没有对应枚举，按 off 呈现即可，别让状态读取炸掉。
+        return PlayerUpscalerMode.off;
     }
   }
 
@@ -1751,6 +1756,9 @@ class ErikaPlayerAdapter
         return PlayerUpscalerBackendStatus.scalar;
       case ErikaUpscalerBackendStatus.simdgroupMatrix:
         return PlayerUpscalerBackendStatus.simdgroupMatrix;
+      default:
+        // 0.3.7 新增 cooperativeMatrix（Metal 4 tensor）等后端。
+        return PlayerUpscalerBackendStatus.unknown;
     }
   }
 

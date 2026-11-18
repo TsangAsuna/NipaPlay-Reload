@@ -2586,15 +2586,17 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
                       player.setProperty('subtitle.font.size', '45');
                     } catch (_) {}
                   }
-      // 防御：历史设置/备份恢复可能留下离谱的字幕延迟（例如 ±1000s），
-      // 表现是"轨道勾选、内核状态全对、整集一个字都不出"。超过 30s 的
-      // 延迟一律按 0 写入内核并留痕，不修改用户持久化设置。
+      // 字幕延迟允许到整集时长（自定义输入上限就是 duration），所以这里
+      // 不能替用户改值——但 >30s 的延迟会让整段字幕平移出画面，表现为
+      // "轨道勾选、内核状态全对、一条字幕都没有"。写日志留痕，便于排查。
       final rawDelay = subtitleDelaySeconds;
-      final safeDelay =
-          (rawDelay.isFinite && rawDelay.abs() <= 30) ? rawDelay : 0.0;
-      if (safeDelay != rawDelay) {
+      final safeDelay = rawDelay.isFinite ? rawDelay : 0.0;
+      if (!rawDelay.isFinite) {
+        debugPrint('[SubtitleDelay] 延迟值非法($rawDelay)，按 0 应用');
+      } else if (rawDelay.abs() >= 30) {
         debugPrint(
-          '[SubtitleDelay] 忽略异常延迟 ${rawDelay}s，按 0 应用（疑似设置损坏）',
+          '[SubtitleDelay] 当前延迟 ${rawDelay.toStringAsFixed(1)}s（≥30s）：'
+          '整段字幕会被平移，画面上可能一条都看不到',
         );
       }
       player.setProperty('sub-delay', safeDelay.toStringAsFixed(2));

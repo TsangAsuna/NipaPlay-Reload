@@ -184,7 +184,7 @@ Alignment _resolveStartupWindowAlignment(
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   // 构建标记（release 可见）：用户日志里的一行即可确认装的是哪个构建。
-  debugPrint('[Build] NipaPlay subtitle-fix-r2 (2026-11-18)');
+  debugPrint('[Build] NipaPlay subtitle-fix-r3 (2026-11-19)');
   // Restore directory grants before storage, history, scanning or playback.
   if (globals.isHarmonyOS) {
     try {
@@ -283,6 +283,12 @@ void main(List<String> args) async {
   // 初始化调试日志服务（在最前面初始化，这样可以收集启动过程的日志）
   final debugLogService = DebugLogService();
   debugLogService.initialize();
+  // 日志服务起来之后再写一次构建标记，确保它真的进上传日志。
+  debugLogService.addLog(
+    '[Build] NipaPlay subtitle-fix-r3 (2026-11-19)',
+    level: 'INFO',
+    tag: 'Build',
+  );
   final fileLogService = FileLogService();
   await fileLogService.initialize();
 

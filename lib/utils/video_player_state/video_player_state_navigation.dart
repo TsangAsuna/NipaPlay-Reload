@@ -911,6 +911,8 @@ extension VideoPlayerStateNavigation on VideoPlayerState {
           // 诊断（release 可见）：Media Kit 播放期 10s 采样一次真实内核
           // 字幕状态，覆盖"轨道勾选但画面无字幕"的全部分支。
           debugSampleSubtitleKernelState();
+          // 一次性自愈：起播 2.5s 仍无字幕文本时重写 sid，强制重载字幕流。
+          maybeRearmSilentSubtitle();
           if (isBuffering) {
             // Buffering is not a user pause. Keep the ticker available for
             // recovery, but freeze its media anchor and skip drift correction.

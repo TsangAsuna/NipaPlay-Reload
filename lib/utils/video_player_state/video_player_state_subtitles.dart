@@ -478,14 +478,73 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
         final scale = await player.getLiveProperty('sub-scale') ?? '';
         final pos = await player.getLiveProperty('sub-pos') ?? '';
         final marginY = await player.getLiveProperty('sub-margin-y') ?? '';
+        // 下列属性决定"轨道选中却不出字"是否发生在 mpv 内部：
+        // sub-start/sub-end 非空 = 字幕包已解码到当前时刻；两者恒空 =
+        // 解复用/投递就断了（与 libass 无关）。sub-delay 离谱 = 整集
+        // 字幕被平移出时间轴。drop-count 暴涨 = 渲染跟不上（画面跳帧）。
+        final delay = await player.getLiveProperty('sub-delay') ?? '';
+        final subStart = await player.getLiveProperty('sub-start') ?? '';
+        final subEnd = await player.getLiveProperty('sub-end') ?? '';
+        final override = await player.getLiveProperty('sub-ass-override') ?? '';
+        final opacity = await player.getLiveProperty('sub-opacity') ?? '';
+        final font = await player.getLiveProperty('sub-font') ?? '';
+        final fontsDir = await player.getLiveProperty('sub-fonts-dir') ?? '';
+        final embeddedFonts = await player.getLiveProperty('embeddedfonts') ?? '';
+        final speed = await player.getLiveProperty('speed') ?? '';
+        final dropCount = await player.getLiveProperty('frame-drop-count') ?? '';
+        final mistimed =
+            await player.getLiveProperty('mistimed-frame-count') ?? '';
         if (_isDisposed) return;
         debugPrint(
           '[字幕采样] sid=$sid vis=$visibility textLen=${text.length} '
-          'scale=$scale pos=$pos marginY=$marginY '
+          'subStart="$subStart" subEnd="$subEnd" delay=$delay '
+          'scale=$scale pos=$pos marginY=$marginY override=$override '
+          'opacity=$opacity font="$font" fontsDir="$fontsDir" '
+          'embeddedFonts=$embeddedFonts speed=$speed '
+          'dropped=$dropCount mistimed=$mistimed '
           'tracks=${player.activeSubtitleTracks} '
           'mode=$_embeddedSubtitleOverlayMode '
           'fallback=$_embeddedOverlayFallbackActive',
         );
+      } catch (_) {}
+    }());
+  }
+
+  /// 一次性自愈：开始播放 2.5s 后 Media Kit 内嵌轨仍然一个字的文本都没有，
+  /// 就把当前 sid 重写一次，强制 mpv 从当前位置重载字幕流。
+  /// 覆盖"选轨发生在解复用器就绪之前：sid 写进去了、字幕包却从未投递"的
+  /// 竞态（mpv 只在 sub_reload 时补发历史字幕包）。
+  /// 用 ticker 驱动而不是 Timer，避免测试里的 timersPending 不变量。
+  void maybeRearmSilentSubtitle() {
+    if (kIsWeb || _isDisposed || _silentSubtitleRearmDone) return;
+    if (_status != PlayerStatus.playing) return;
+    if (player.getPlayerKernelName() != 'Media Kit') return;
+    final startMs = _lastPlaybackStartMs;
+    if (startMs <= 0) return;
+    if (DateTime.now().millisecondsSinceEpoch - startMs < 2500) return;
+    if (player.activeSubtitleTracks.isEmpty) return;
+    if (activeExternalSubtitlePaths.isNotEmpty) return;
+    _silentSubtitleRearmDone = true;
+    unawaited(() async {
+      try {
+        final text = await player.getLiveProperty('sub-text') ?? '';
+        if (text.isNotEmpty) return;
+        final sid = await player.getLiveProperty('sid') ?? '';
+        final subStart = await player.getLiveProperty('sub-start') ?? '';
+        if (sid.isEmpty || sid == 'no' || sid == 'auto') {
+          debugPrint('[字幕自愈] 不重选：sid=$sid subStart="$subStart"');
+          return;
+        }
+        debugPrint(
+          '[字幕自愈] 2.5s 内 0 文本，强制重选 sid=$sid（等价手动取消再勾选，'
+          'subStart="$subStart"）',
+        );
+        // 同值 sid 写入通常被 mpv 短路成 no-op，这里先 no 再 id 强制重载
+        // 字幕解码器；与用户在 UI 里"取消勾选再打勾"等价，但自动执行一次。
+        player.setProperty('sid', 'no');
+        player.setProperty('sid', sid);
+        // 重选可能把 sub-visibility 打回默认，按当前模式重新同步一次。
+        applyEmbeddedSubtitleOverlayKernelState();
       } catch (_) {}
     }());
   }
@@ -533,6 +592,7 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
     _embeddedOverlayEverGotText = false;
     _embeddedOverlayFallbackActive = false;
     _embeddedOverlayAppliedNoMs = 0;
+    _silentSubtitleRearmDone = false;
   }
 
   /// Throttled poll entry from the position ticker (~8Hz, notifies only on

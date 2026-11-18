@@ -118,6 +118,12 @@ class MediaKitPlayerAdapter
   }
 
   static bool _shouldEnableMpvDiagnostics() {
+    // iOS 上没有 env 开关可用，而 mpv 自己的日志是"字幕轨已选却不显示"
+    // 唯一能拿到的证据面（demux 选轨、解码、libass 字体回退都在这里面）。
+    // release 也默认开启，转发端只放行白名单前缀并设上限，量可控。
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      return true;
+    }
     return _envFlagEnabled('NIPAPLAY_ENABLE_MPV_LOGS') ||
         _envFlagEnabled(_hdrValidationFlag) ||
         _envFlagEnabled(_windowsHdrValidationFlag) ||
@@ -157,8 +163,10 @@ class MediaKitPlayerAdapter
       case 'error':
         return MPVLogLevel.error;
       default:
-        return _shouldEnableMpvDiagnostics()
-            ? MPVLogLevel.debug
+        // iOS：verbose 才能拿到 libass 的 fontselect / 错误行，其他平台
+        // 保持 debug（既有行为）。
+        return (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)
+            ? MPVLogLevel.v
             : MPVLogLevel.debug;
     }
   }
@@ -454,10 +462,20 @@ class MediaKitPlayerAdapter
       return;
     }
 
-    final defaultMsgLevel = (_envFlagEnabled(_hdrValidationFlag) ||
-            _envFlagEnabled(_windowsHdrValidationFlag))
-        ? 'all=warn,cplayer=debug,vd=debug,vf=v,vo=debug,vo/gpu-next=v,gpu=v,mac=v,cocoacb=v,ffmpeg=warn,ffmpeg/demuxer=warn,lavf=warn,demux=warn,file=warn,playlist=warn'
-        : 'all=debug';
+    final String defaultMsgLevel;
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      // 字幕排查用的最小面：选轨/解码/渲染在 info，libass 字体回退（
+      // fontselect）在 verbose。其余模块压到 warn，避免刷屏。
+      defaultMsgLevel = 'all=warn,cplayer=info,demux=info,demux_lavf=info,'
+          'sd_lavf=info,sub=info,vd=info,vo=info,lavf=info,'
+          'ffmpeg=warn,ffmpeg/demuxer=info,ass=v,fontselect=v,libass=v';
+    } else if (_envFlagEnabled(_hdrValidationFlag) ||
+        _envFlagEnabled(_windowsHdrValidationFlag)) {
+      defaultMsgLevel =
+          'all=warn,cplayer=debug,vd=debug,vf=v,vo=debug,vo/gpu-next=v,gpu=v,mac=v,cocoacb=v,ffmpeg=warn,ffmpeg/demuxer=warn,lavf=warn,demux=warn,file=warn,playlist=warn';
+    } else {
+      defaultMsgLevel = 'all=debug';
+    }
 
     final options = <String, String>{
       if (_envString('NIPAPLAY_MPV_LOG_FILE') case final logFile?)
@@ -1154,10 +1172,58 @@ class MediaKitPlayerAdapter
     });
 
     _player.stream.log.listen((log) {
-      if (_mpvDiagnosticsEnabled) {
-        debugPrint('MediaKit MPV日志: [${log.level}/${log.prefix}] ${log.text}');
+      if (_isDisposed || !_mpvDiagnosticsEnabled) {
+        return;
       }
+      if (!_shouldForwardMpvLogLine(log.prefix, log.level, log.text)) {
+        return;
+      }
+      if (_mpvLogLinesForwarded >= 500) {
+        if (_mpvLogLinesForwarded == 500) {
+          _mpvLogLinesForwarded++;
+          debugPrint('[mpv] 已达到 500 行转发上限，后续同类日志折叠');
+        }
+        return;
+      }
+      _mpvLogLinesForwarded++;
+      debugPrint('[mpv/${log.prefix}/${log.level}] ${log.text}');
     });
+  }
+
+  int _mpvLogLinesForwarded = 0;
+
+  /// 字幕排查白名单：只保留与"选轨/解码/渲染/字体"相关的 mpv 行。
+  /// error/warn 一律保留。
+  static bool _shouldForwardMpvLogLine(
+    String prefix,
+    String level,
+    String text,
+  ) {
+    if (level == 'error' || level == 'fatal' || level == 'warn') {
+      return true;
+    }
+    const prefixes = <String>{
+      'ass',
+      'fontselect',
+      'libass',
+      'sub',
+      'sd_lavf',
+      'demux',
+      'demux_lavf',
+      'cplayer',
+      'vo',
+      'vd',
+      'lavf',
+      'ffmpeg',
+    };
+    if (prefixes.contains(prefix)) {
+      return true;
+    }
+    final lower = text.toLowerCase();
+    return lower.contains('subtitle') ||
+        lower.contains('libass') ||
+        lower.contains('font') ||
+        lower.contains('track');
   }
 
   void _resetMediaLoadState({required bool preserveRetryCount}) {

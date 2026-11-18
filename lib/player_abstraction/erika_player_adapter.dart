@@ -922,6 +922,7 @@ class ErikaPlayerAdapter
       _properties.remove('video.decoder');
       _lastAudioOutputStatus = const <String, dynamic>{};
       _lastNativeError = null;
+      _nativeFailureDumped = false;
       _externalSubtitleTrackIds.clear();
       _externalSubtitleGeneration++;
     }
@@ -934,13 +935,56 @@ class ErikaPlayerAdapter
       return;
     }
     await _player.ensureCreated();
-    await _player.open(
-      _media,
-      httpHeaders: _userAgent.isEmpty ? null : {'User-Agent': _userAgent},
-    );
+    try {
+      await _player.open(
+        _media,
+        httpHeaders: _userAgent.isEmpty ? null : {'User-Agent': _userAgent},
+      );
+    } catch (error) {
+      // release 可见：open 只抛一句 "open failed with ErikaStatus N"，
+      // 真正原因（HTTP 状态 / 容器解析 / 解码器）在原生日志里。
+      debugPrint('[Erika] prepare open 失败: $error');
+      await _dumpErikaNativeFailureDetails('open');
+      rethrow;
+    }
     _subtitleTrace('prepare open complete media=$_media');
     _state = PlayerPlaybackState.paused;
   }
+
+  /// 每次打开媒体只抓一次：liberika 的原生诊断快照 + 日志尾巴。
+  /// 0.3.x 才有这两个接口，老运行时会抛 UnsupportedError，忽略即可。
+  Future<void> _dumpErikaNativeFailureDetails(String phase) async {
+    if (_nativeFailureDumped) {
+      return;
+    }
+    _nativeFailureDumped = true;
+    try {
+      final snapshot = await _player.getDiagnosticsSnapshot();
+      debugPrint(
+        '[Erika诊断] $phase ${_truncateForLog(jsonEncode(snapshot), 1500)}',
+      );
+    } catch (e) {
+      debugPrint('[Erika诊断] $phase 快照不可用: $e');
+    }
+    try {
+      final logs = await _player.getLogs(limit: 120);
+      final entries = logs['entries'];
+      if (entries is List) {
+        for (final entry in entries) {
+          debugPrint('[Erika原生] $entry');
+        }
+      } else {
+        debugPrint('[Erika原生] ${_truncateForLog(jsonEncode(logs), 1500)}');
+      }
+    } catch (e) {
+      debugPrint('[Erika原生] 日志不可用: $e');
+    }
+  }
+
+  static String _truncateForLog(String text, int max) =>
+      text.length <= max ? text : '${text.substring(0, max)}…(${text.length})';
+
+  bool _nativeFailureDumped = false;
 
   @override
   void seek({required int position}) {
@@ -1712,6 +1756,7 @@ class ErikaPlayerAdapter
         'status=${event.status} error=${event.error ?? '-'} '
         'message=${event.message ?? '-'}',
       );
+      unawaited(_dumpErikaNativeFailureDetails('event-error'));
     }
 
     final decoder = event.decoder;

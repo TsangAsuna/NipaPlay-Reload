@@ -371,14 +371,22 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
   void applyEmbeddedSubtitleOverlayKernelState() {
     if (kIsWeb || _isDisposed) return;
     try {
-      if (player.getPlayerKernelName() == 'Media Kit' &&
+      final kernel = player.getPlayerKernelName();
+      final externalAss = isKernelRenderedExternalAssActive;
+      final bitmap = _isBitmapSubtitleTrackActive();
+      final overlayActive = kernel == 'Media Kit' &&
           _embeddedSubtitleOverlayMode &&
-          !isKernelRenderedExternalAssActive &&
+          !externalAss &&
           !_embeddedOverlayFallbackActive &&
-          !_isBitmapSubtitleTrackActive()) {
+          !bitmap;
+      if (overlayActive) {
         player.setProperty('sub-visibility', 'no');
         _embeddedOverlayEverGotText = false;
-        _embeddedOverlayAppliedNoMs = DateTime.now().millisecondsSinceEpoch;
+        // 首次应用 'no' 的时间戳决定回退时刻；用户反复重选轨道不得推迟
+        // 回退——否则"一直勾选/切换轨道"会让 25s 回退永远不触发，黑屏无解。
+        if (_embeddedOverlayAppliedNoMs <= 0) {
+          _embeddedOverlayAppliedNoMs = DateTime.now().millisecondsSinceEpoch;
+        }
       } else {
         _embeddedOverlayAppliedNoMs = 0;
         player.setProperty('sub-visibility', 'yes');
@@ -387,6 +395,14 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
           _notifyListeners();
         }
       }
+      // 诊断（release 可见）：每次内核渲染开关的决策都留痕，用于定位
+      // "勾选却不显示"时到底是模式/位图/外挂 ASS/回退哪个分支。
+      debugPrint(
+        '[整块叠层] 状态: kernel=$kernel mode=$_embeddedSubtitleOverlayMode '
+        'externalAss=$externalAss bitmap=$bitmap '
+        'fallback=$_embeddedOverlayFallbackActive -> '
+        'sub-visibility=${overlayActive ? 'no' : 'yes'}',
+      );
     } catch (e) {
       debugPrint('VideoPlayerState: sync whole-block kernel state failed: $e');
     } finally {
@@ -442,6 +458,36 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
       's 内未收到任何字幕文本，回退内核渲染（sub-visibility=yes）',
     );
     _notifyListeners();
+  }
+
+  /// 诊断（release 可见，10s 节流）：Media Kit 播放期采样"真实"内核字幕
+  /// 状态——sid / sub-visibility / sub-text 长度 / 缩放与位置 / 勾选状态 /
+  /// 叠层模式。用户日志里出现这一行，就能直接定位"勾选却不显示"卡在
+  /// 哪一层（mpv 没选上轨 / 渲染被关 / 文本为空 / 位置被推到画面外）。
+  void debugSampleSubtitleKernelState() {
+    if (kIsWeb || _isDisposed) return;
+    if (player.getPlayerKernelName() != 'Media Kit') return;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastSubtitleKernelSampleMs < 10000) return;
+    _lastSubtitleKernelSampleMs = nowMs;
+    unawaited(() async {
+      try {
+        final sid = await player.getLiveProperty('sid') ?? '';
+        final visibility = await player.getLiveProperty('sub-visibility') ?? '';
+        final text = await player.getLiveProperty('sub-text') ?? '';
+        final scale = await player.getLiveProperty('sub-scale') ?? '';
+        final pos = await player.getLiveProperty('sub-pos') ?? '';
+        final marginY = await player.getLiveProperty('sub-margin-y') ?? '';
+        if (_isDisposed) return;
+        debugPrint(
+          '[字幕采样] sid=$sid vis=$visibility textLen=${text.length} '
+          'scale=$scale pos=$pos marginY=$marginY '
+          'tracks=${player.activeSubtitleTracks} '
+          'mode=$_embeddedSubtitleOverlayMode '
+          'fallback=$_embeddedOverlayFallbackActive',
+        );
+      } catch (_) {}
+    }());
   }
 
   /// 暂停态刷新计时器汇聚点：pause() 会停掉 UI ticker（整块叠层的暂停
@@ -545,20 +591,21 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
       } else {
         // 文本迟迟不出字（位图轨/轮询失效/mpv 侧丢轨）：惰性回退内核渲染。
         _maybeApplyEmbeddedOverlayKernelFallback();
-        if (kDebugMode && _embeddedSubtitleOverlayMode) {
-          // 诊断（3s 节流）：勾选了轨却黑屏时，这条日志能区分
-          // "mpv 侧没选上轨（sid=no）" 还是 "sub-text 正常为空（行间隙）"。
-          final nowMs = DateTime.now().millisecondsSinceEpoch;
-          if (nowMs - _lastEmbeddedOverlayDebugLogMs > 3000) {
-            _lastEmbeddedOverlayDebugLogMs = nowMs;
-            final sid = await player.getLiveProperty('sid') ?? '';
-            final visibility =
-                await player.getLiveProperty('sub-visibility') ?? '';
-            debugPrint(
-              '[整块叠层] sub-text 为空: sid=$sid sub-visibility=$visibility '
-              'tracks=${player.activeSubtitleTracks}',
-            );
-          }
+        // 诊断（release 可见，5s 节流）：勾选了轨却黑屏时，这条日志能区分
+        // "mpv 侧没选上轨（sid=no）"、"sub-visibility 被关（应为 no）"与
+        // "sub-text 正常为空（行间隙/位图轨）"。
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        if (nowMs - _lastEmbeddedOverlayDebugLogMs > 5000) {
+          _lastEmbeddedOverlayDebugLogMs = nowMs;
+          final sid = await player.getLiveProperty('sid') ?? '';
+          final visibility =
+              await player.getLiveProperty('sub-visibility') ?? '';
+          debugPrint(
+            '[整块叠层] sub-text 为空: sid=$sid sub-visibility=$visibility '
+            'tracks=${player.activeSubtitleTracks} '
+            'fallback=$_embeddedOverlayFallbackActive '
+            'appliedNoMs=$_embeddedOverlayAppliedNoMs',
+          );
         }
       }
       if (trimmed == _embeddedSubtitleOverlayText) return;

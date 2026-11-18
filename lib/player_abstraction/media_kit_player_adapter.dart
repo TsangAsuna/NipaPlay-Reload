@@ -1764,7 +1764,12 @@ class MediaKitPlayerAdapter
 
       if (hasChanged) {
         _activeSubtitleTracks = List<int>.from(newActiveTrackIndices);
-        //debugPrint('MediaKitAdapter: _activeSubtitleTracks UPDATED (by _performSubtitleSyncLogic). New state: $_activeSubtitleTracks, Based on MPV SID: $activeMpvSid');
+        // 诊断（release 可见）：UI 勾选的真值来源——mpv sid 与勾选状态的同步结果。
+        debugPrint(
+          '[MK字幕] 同步: mpvSid=${activeMpvSid ?? 'null'} -> '
+          'activeTracks=$_activeSubtitleTracks '
+          '(mediaInfo=${realSubtitleTracksInMediaInfo?.length ?? 0} 条)',
+        );
       } else {
         //debugPrint('MediaKitAdapter: _activeSubtitleTracks UNCHANGED (by _performSubtitleSyncLogic). Current state: $_activeSubtitleTracks, Based on MPV SID: $activeMpvSid');
       }
@@ -2030,7 +2035,7 @@ class MediaKitPlayerAdapter
 
       if (value.isEmpty) {
         _player.setSubtitleTrack(SubtitleTrack.no());
-        //debugPrint('MediaKitAdapter: UI set no subtitle track. Telling mpv to use "no".');
+        debugPrint('[MK字幕] 选轨=关闭 (sid=no)');
         // _activeSubtitleTracks should be updated by _performSubtitleSyncLogic via _handleActiveSubtitleTrackDataChange
         return;
       }
@@ -2040,7 +2045,11 @@ class MediaKitPlayerAdapter
       // CRITICAL CHECK: If _mediaInfo has been reset (subtitles are null/empty),
       // do not proceed with trying to set a track based on an outdated index.
       if (mediaInfoSubtitles == null || mediaInfoSubtitles.isEmpty) {
-        //debugPrint('MediaKitAdapter: CRITICAL - UI requested track index $uiSelectedMediaInfoIndex, but _mediaInfo.subtitle is currently NULL or EMPTY. This likely means player state was reset externally (e.g., by SubtitleManager clearing tracks). IGNORING this subtitle change request to prevent player stop/crash. The UI should resync with the new player state via listeners.');
+        // 诊断（release 可见）：这条静默丢弃表现为"勾选了但内核完全没收到"。
+        debugPrint(
+          '[MK字幕] 选轨被丢弃: index=$uiSelectedMediaInfoIndex, '
+          '_mediaInfo.subtitle 为空 (state 轨道数=${_player.state.tracks.subtitle.length})',
+        );
         // DO NOT call _player.setSubtitleTrack() here.
         return; // Exit early
       }
@@ -2061,19 +2070,29 @@ class MediaKitPlayerAdapter
         }
 
         if (actualSubtitleTrackToSet != null) {
-          //debugPrint('MediaKitAdapter: UI selected _mediaInfo index $uiSelectedMediaInfoIndex (MPV ID: $mpvTrackIdToSelect). Setting player subtitle track with SubtitleTrack(id: ${actualSubtitleTrackToSet.id}, title: ${actualSubtitleTrackToSet.title ?? 'N/A'}).');
+          debugPrint(
+            '[MK字幕] 选轨 index=$uiSelectedMediaInfoIndex -> mpvId=$mpvTrackIdToSelect '
+            '(${actualSubtitleTrackToSet.title ?? 'N/A'})',
+          );
           _player.setSubtitleTrack(actualSubtitleTrackToSet);
         } else {
-          //debugPrint('MediaKitAdapter: Could not find SubtitleTrackData in player.state.tracks.subtitle for MPV ID "$mpvTrackIdToSelect" (from UI index $uiSelectedMediaInfoIndex). Setting to "no" as a fallback for this specific failure.');
+          // 诊断（release 可见）：stale id 静默降级到 sid=no 的分支。
+          debugPrint(
+            '[MK字幕] 选轨失败: mpvId=$mpvTrackIdToSelect 不在当前 '
+            'track-list(${_player.state.tracks.subtitle.length} 条) -> sid=no',
+          );
           _player.setSubtitleTrack(SubtitleTrack.no());
         }
       } else {
         // This case means mediaInfoSubtitles is NOT empty, but the index is out of bounds.
-        //debugPrint('MediaKitAdapter: Invalid UI track index $uiSelectedMediaInfoIndex for a NON-EMPTY _mediaInfo.subtitle list (length: ${mediaInfoSubtitles.length}). Setting to "no" because the requested index is out of bounds.');
+        debugPrint(
+          '[MK字幕] 选轨失败: index 越界($uiSelectedMediaInfoIndex / '
+          '${mediaInfoSubtitles.length}) -> sid=no',
+        );
         _player.setSubtitleTrack(SubtitleTrack.no());
       }
     } catch (e, s) {
-      //debugPrint('MediaKitAdapter: Error in "set activeSubtitleTracks": $e\\nStack trace:\\n$s. Setting to "no" as a safety measure.');
+      debugPrint('[MK字幕] 选轨异常: $e -> sid=no');
       // Avoid crashing, but set to 'no' if an unexpected error occurs.
       if (!_isDisposed) {
         // Check if player is disposed before trying to set track

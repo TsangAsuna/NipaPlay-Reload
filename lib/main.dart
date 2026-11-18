@@ -183,6 +183,8 @@ Alignment _resolveStartupWindowAlignment(
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 构建标记（release 可见）：用户日志里的一行即可确认装的是哪个构建。
+  debugPrint('[Build] NipaPlay subtitle-fix-r2 (2026-11-18)');
   // Restore directory grants before storage, history, scanning or playback.
   if (globals.isHarmonyOS) {
     try {

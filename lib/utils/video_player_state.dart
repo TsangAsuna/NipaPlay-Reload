@@ -816,6 +816,7 @@ int _exactEndStreak = 0;
   bool _embeddedOverlayEverGotText = false;
   int _embeddedOverlayAppliedNoMs = 0;
   int _lastEmbeddedOverlayDebugLogMs = 0;
+  int _lastSubtitleKernelSampleMs = 0;
   Timer? _pausedOverlayPollTimer;
 
   // 弹幕轨道显示区域设置

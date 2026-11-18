@@ -2572,6 +2572,23 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
       final assScriptOwnsSize = playerKernelName == 'Media Kit' &&
           _subtitleOverrideMode == SubtitleStyleOverrideMode.auto &&
           _activeEmbeddedSubtitleIsScriptAss();
+      // mpv 的 sd_ass.c 只在 (converted || ass_style_override != NONE) 时
+      // 才把 sub-pos 传给 libass（ass_set_line_position）。override=no 时
+      // 写 sub-pos 是无效操作——这就是"位置滑块在 libmpv 上失灵"的根因。
+      // 脚本轨保持 override=no（样式归脚本），位置改走 sub-margin-y：
+      // margin-y 对任何 override 档位都生效（mpv 直接把它算进 OSD 边距）。
+      if (playerKernelName == 'Media Kit' && assScriptOwnsSize) {
+        // sub-pos=100 => mpv 原生位置（不叠加 line_position 位移）；
+        // 位置滑块的偏移全部落到 sub-margin-y 上：>100 把字幕压向画面底
+        // （margin 为正把字幕上提，需要负值下移；mpv 接受负 margin）。
+        player.setProperty('sub-pos', '100');
+        final marginOffset = -(100.0 - _subtitlePosition);
+        player.setProperty('sub-margin-y', marginOffset.round().toString());
+      } else {
+        player.setProperty('sub-pos', _subtitlePosition.toStringAsFixed(0));
+        player.setProperty(
+            'sub-margin-y', _subtitleMarginY.round().toString());
+      }
             // mdk 属性名是 subtitle.scale（sub-scale 是 mpv 的）——之前用错
                   // 导致 mdk 内嵌轨字号设置不生效（默认 22 小字号，对比 libmpv 明显小）
       if (!assScriptOwnsSize) {
@@ -2600,11 +2617,9 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
         );
       }
       player.setProperty('sub-delay', safeDelay.toStringAsFixed(2));
-      player.setProperty('sub-pos', _subtitlePosition.toStringAsFixed(0));
       player.setProperty('sub-align-x', _subtitleAlignXToMpv(_subtitleAlignX));
       player.setProperty('sub-align-y', _subtitleAlignYToMpv(_subtitleAlignY));
       player.setProperty('sub-margin-x', _subtitleMarginX.round().toString());
-      player.setProperty('sub-margin-y', _subtitleMarginY.round().toString());
       player.setProperty(
         'sub-opacity',
         _subtitleOpacityToMpv(_subtitleOpacity).toString(),

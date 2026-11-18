@@ -419,23 +419,30 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
     try {
       final subtitles = player.mediaInfo.subtitle;
       if (subtitles == null || subtitles.isEmpty) return false;
-      // 只判定"当前实际生效的那一条"：用户在菜单里的选择优先（适配器
-      // 回写 activeSubtitleTracks 有延迟），没有用户选择时用已生效轨。
-      // 不能把两者并集——列表里只要存在一条位图轨就会把文本轨误判成
-      // 位图轨，叠层模式被静默关掉。
+      // 判定顺序：菜单里刚点下的选择优先（适配器回写 activeSubtitleTracks
+      // 有延迟），否则用当前已生效轨（可能不止一条，任一位图即命中）。
+      // lastSelectedEmbeddedTrackIndex 是"菜单选择"（-1 = 没选过/已关闭），
+      // 不能拿它兜底成永远有效的值——自动选轨/恢复播放都不经过菜单。
       final active = player.activeSubtitleTracks;
       final last = subtitleManager.lastSelectedEmbeddedTrackIndex;
-      final index = (last >= 0 && last < subtitles.length)
-          ? last
-          : (active.isNotEmpty ? active.first : -1);
-      if (index < 0 || index >= subtitles.length) return false;
-      final codec = (subtitles[index].metadata['codec'] ?? '')
-          .toString()
-          .toLowerCase();
-      if (codec.isEmpty) return false;
-      return _bitmapSubtitleCodecs.any((bitmap) => codec.startsWith(bitmap));
+      if (last >= 0 && last < subtitles.length) {
+        return _subtitleCodecIsBitmap(subtitles[last].metadata['codec']);
+      }
+      for (final index in active) {
+        if (index < 0 || index >= subtitles.length) continue;
+        if (_subtitleCodecIsBitmap(subtitles[index].metadata['codec'])) {
+          return true;
+        }
+      }
+      return false;
     } catch (_) {}
     return false;
+  }
+
+  static bool _subtitleCodecIsBitmap(Object? codec) {
+    final value = (codec ?? '').toString().toLowerCase();
+    if (value.isEmpty) return false;
+    return _bitmapSubtitleCodecs.any((bitmap) => value.startsWith(bitmap));
   }
 
   /// 回退判定（惰性）：应用 sub-visibility=no 后超过
@@ -550,21 +557,22 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
     if (kIsWeb || _isDisposed || _silentSubtitleRearmDone) return;
     if (_status != PlayerStatus.playing) return;
     if (player.getPlayerKernelName() != 'Media Kit') return;
-    final progressMs = positionMs ?? player.position;
-    // 起播/恢复播放后给解复用器与字幕解码器一个落地的窗口：进度没动
-    // 或者刚起来不到 2.5s 都不判定，避免把唯一一次自愈耗在准备阶段。
+    // 观察窗口按"本次播放会话开始后的墙钟时间"计：2.5s 前不判定（给解
+    // 复用器落地时间），8s 后不管结果都收旗。不能用播放进度——恢复
+    // 播放从 10 分钟处开始时进度恒 >6000，一次性自愈会立刻作废。
     final startMs = _lastPlaybackStartMs;
     if (startMs <= 0) return;
-    if (DateTime.now().millisecondsSinceEpoch - startMs < 2500) return;
-    if (progressMs < 2500) return;
-    // 超过 6s 还没触发说明这条路径不需要自愈（正常出字/无字幕），
-    // 直接收旗，别再每帧去做属性读取。
-    if (progressMs > 6000) {
+    final elapsedMs = DateTime.now().millisecondsSinceEpoch - startMs;
+    if (elapsedMs < 2500) return;
+    if (elapsedMs > 8000) {
       _silentSubtitleRearmDone = true;
       return;
     }
+    final progressMs = positionMs ?? player.position;
     if (player.activeSubtitleTracks.isEmpty) return;
     if (activeExternalSubtitlePaths.isNotEmpty) return;
+    if (_silentSubtitleRearmInFlight) return;
+    _silentSubtitleRearmInFlight = true;
     unawaited(() async {
       try {
         final text = await player.getLiveProperty('sub-text') ?? '';
@@ -603,7 +611,9 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
         // 不要回写 activeSubtitleTracks：适配器的 setter 会再发一次选轨
         // 请求，可能把刚写进去的 sid 又覆盖掉。
         applyEmbeddedSubtitleOverlayKernelState();
-      } catch (_) {}
+      } catch (_) {} finally {
+        _silentSubtitleRearmInFlight = false;
+      }
     }());
   }
 

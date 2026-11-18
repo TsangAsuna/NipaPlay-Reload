@@ -974,7 +974,14 @@ class MediaKitPlayerAdapter
 
       platform.setProperty?.call("embeddedfonts", "yes");
       platform.setProperty?.call("sub-ass-force-style", "");
+      // mpv 的 sd_ass.c：sub-pos/行距只有 ass_style_override != NONE 时才
+      // 传给 libass。这里保持 no（脚本样式不被覆盖），但位置滑块仍要生效
+      // ——VideoPlayerState 会在脚本轨场景改用 sub-margin-y 表达位置偏移
+      // （margin 经 ass_set_margins 恒生效）。不再在此写死 sub-pos。
       platform.setProperty?.call("sub-ass-override", "no");
+      // mpv 默认 sub-margin-y=34；置 0 让"字幕位置=脚本位置"，避免默认
+      // 边距把内嵌字幕从画面底再抬高 34 缩放像素（位置偏高）。
+      platform.setProperty?.call("sub-margin-y", "0");
 
       if (defaultTargetPlatform == TargetPlatform.android) {
         platform.setProperty?.call("sub-font", "Droid Sans Fallback");
@@ -1232,7 +1239,7 @@ class MediaKitPlayerAdapter
     r'''(?i)\b(api[_-]?key|access[_-]?token|token|authorization)\b\s*[=:]\s*\S+''',
   );
   static final RegExp _mpvBearerPattern =
-      RegExp(r'''(?i)\bBearer\s+[A-Za-z0-9._\-+/=]+''');
+      RegExp(r'''(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._\-+/=]+''');
 
   /// mpv 会把媒体 URL 原样打出来（`cplayer: Playing:` / `demux: Opening:`），
   /// Emby/Jellyfin 的 `?api_key=<token>` 会因此落进设备日志。
@@ -1240,23 +1247,31 @@ class MediaKitPlayerAdapter
   /// `key=value` 与 `Authorization: Bearer`。
   static String _redactMpvLogText(String text) {
     var out = text;
+    // 先抹 Authorization 头（Bearer/Basic），否则 secret 模式只吃到
+    // "Authorization:" 就停，token 本体留在日志里。
+    if (out.toLowerCase().contains('bearer') ||
+        out.toLowerCase().contains('authorization')) {
+      out = out.replaceAll(_mpvBearerPattern, '<redacted>');
+    }
     if (out.contains('://')) {
       out = out.replaceAllMapped(_mpvUrlPattern, (match) {
         final raw = match.group(0) ?? '';
         final uri = Uri.tryParse(raw);
-        if (uri == null || uri.host.isEmpty) {
+        if (uri == null) {
           return '<url>';
         }
+        // file:///D:/x.mkv 这类无 host 的本地路径保留 path，别整段吞掉。
+        if (uri.host.isEmpty) {
+          return raw.startsWith('file:') ? raw : '<url>';
+        }
+        final host = uri.host.contains(':') ? '[${uri.host}]' : uri.host;
         final port = uri.hasPort ? ':${uri.port}' : '';
-        return '${uri.scheme}://${uri.host}$port${uri.path}'
+        return '${uri.scheme}://$host$port${uri.path}'
             '${uri.hasQuery ? '?<redacted>' : ''}';
       });
     }
-    if (out.contains('=') || out.toLowerCase().contains('bearer')) {
-      out = out
-          .replaceAll(_mpvSecretPattern, '<redacted>')
-          .replaceAll(_mpvBearerPattern, 'Bearer <redacted>');
-    }
+    // 裸的 key=value / key: value 也可能是 token；模式自带锚点，代价可忽略。
+    out = out.replaceAll(_mpvSecretPattern, '<redacted>');
     return out;
   }
 

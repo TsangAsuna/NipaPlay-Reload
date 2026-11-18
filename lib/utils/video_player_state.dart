@@ -819,6 +819,7 @@ int _exactEndStreak = 0;
   int _lastSubtitleKernelSampleMs = 0;
   // 每次播放只做一次的"sid 重写"自愈（见 maybeRearmSilentSubtitle）。
   bool _silentSubtitleRearmDone = false;
+  bool _silentSubtitleRearmInFlight = false;
   Timer? _pausedOverlayPollTimer;
 
   // 弹幕轨道显示区域设置

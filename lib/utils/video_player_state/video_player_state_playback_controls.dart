@@ -338,6 +338,10 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
     }
 
     _status = newStatus;
+    // 整块叠层的暂停刷新计时器跟着状态走：pause() 里调用时状态还是
+    // playing（非 Windows-MediaKit 的 paused 是在 playDirectly 回调里才
+    // 落地），只有在这里同步才能覆盖所有平台的暂停/恢复/停止路径。
+    _syncEmbeddedOverlayPausedTimer();
     if (newStatus == PlayerStatus.ready ||
         newStatus == PlayerStatus.error ||
         newStatus == PlayerStatus.idle ||

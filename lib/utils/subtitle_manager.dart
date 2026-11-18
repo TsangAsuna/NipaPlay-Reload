@@ -433,6 +433,11 @@ class SubtitleManager extends ChangeNotifier {
   /// VideoPlayerState 借此让内核 sub-visibility 跟随整块字幕模式。
   VoidCallback? onExternalSubtitleActivationChanged;
 
+  /// 最近一次在菜单里选中的内嵌轨索引（默认 0 = 第一条）。适配器的
+  /// 轨道事件回到 app 之前，界面刚点下的那条只能从这里读到；
+  /// VideoPlayerState 判定位图轨时用它补上 activeSubtitleTracks 的延迟。
+  int get lastSelectedEmbeddedTrackIndex => _lastSelectedEmbeddedTrackIndex;
+
   // 当字幕轨道改变时调用
   void onSubtitleTrackChanged() {
     final subtitlePath = getActiveExternalSubtitlePath();

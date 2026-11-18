@@ -464,11 +464,11 @@ class MediaKitPlayerAdapter
 
     final String defaultMsgLevel;
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
-      // 字幕排查用的最小面：选轨/解码/渲染在 info，libass 字体回退（
-      // fontselect）在 verbose。其余模块压到 warn，避免刷屏。
+      // 字幕排查用的最小面：选轨/解码在 info，libass 字体回退（fontselect）
+      // 在 verbose；vd/vo 的 info 太吵，只留 warn。其余模块压到 warn。
       defaultMsgLevel = 'all=warn,cplayer=info,demux=info,demux_lavf=info,'
-          'sd_lavf=info,sub=info,vd=info,vo=info,lavf=info,'
-          'ffmpeg=warn,ffmpeg/demuxer=info,ass=v,fontselect=v,libass=v';
+          'sd_lavf=info,sub=info,lavf=info,ffmpeg=warn,ffmpeg/demuxer=info,'
+          'ass=v,fontselect=v,libass=v';
     } else if (_envFlagEnabled(_hdrValidationFlag) ||
         _envFlagEnabled(_windowsHdrValidationFlag)) {
       defaultMsgLevel =
@@ -497,6 +497,31 @@ class MediaKitPlayerAdapter
 
     for (final entry in options.entries) {
       _setMpvPropertyOption(entry.key, entry.value, log: true);
+    }
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      // msg-level 通过 setProperty 在初始化之后写入；若 mpv 不接受，
+      // ass/fontselect 行会静默消失。回读一次，把真实生效值写进日志。
+      unawaited(_verifyMpvMsgLevel());
+    }
+  }
+
+  Future<void> _verifyMpvMsgLevel() async {
+    try {
+      final dynamic platform = _player.platform;
+      if (platform == null) {
+        return;
+      }
+      final raw = await platform.getProperty('msg-level');
+      final applied = raw?.toString() ?? '';
+      if (applied.isEmpty) {
+        debugPrint('[mpv] msg-level 回读为空：诊断可能只拿到默认级别');
+      } else if (!applied.contains('ass') && !applied.contains('all')) {
+        debugPrint('[mpv] msg-level 未按预期生效: "$applied"');
+      } else {
+        debugPrint('[mpv] msg-level 已生效: "$applied"');
+      }
+    } catch (e) {
+      debugPrint('[mpv] msg-level 回读失败: $e');
     }
   }
 
@@ -1148,6 +1173,14 @@ class MediaKitPlayerAdapter
 
     _player.stream.error.listen((error) {
       debugPrint('MediaKit错误: $error');
+      // iOS 为了看 mpv 日志把 error 级日志打开了，media_kit 会把每条
+      // error 级日志合成成 stream.error。这类"日志噪声"不能再触发加载
+      // 失败判定或"请启用转码"提示（改动前 iOS 压根收不到这些事件）。
+      // media_kit 自己通过 _logError 上报的错误形如 "error: <原因> ..."，
+      // 以此区分。
+      if (_ignoreLogDerivedErrors && !error.startsWith('error:')) {
+        return;
+      }
       _recordCurrentMediaLoadError(error);
       _handleStreamingError(error);
     });
@@ -1178,15 +1211,49 @@ class MediaKitPlayerAdapter
       if (!_shouldForwardMpvLogLine(log.prefix, log.level, log.text)) {
         return;
       }
-      if (_mpvLogLinesForwarded >= 500) {
+      final isSevere = log.level == 'error' ||
+          log.level == 'fatal' ||
+          log.level == 'warn';
+      if (!isSevere && _mpvLogLinesForwarded >= 500) {
         if (_mpvLogLinesForwarded == 500) {
           _mpvLogLinesForwarded++;
           debugPrint('[mpv] 已达到 500 行转发上限，后续同类日志折叠');
         }
         return;
       }
-      _mpvLogLinesForwarded++;
-      debugPrint('[mpv/${log.prefix}/${log.level}] ${log.text}');
+      if (!isSevere) {
+        _mpvLogLinesForwarded++;
+      }
+      debugPrint(
+        '[mpv/${log.prefix}/${log.level}] ${_redactMpvLogText(log.text)}',
+      );
+    });
+  }
+
+  /// iOS 上 mpv 日志是默认打开的（见 [_shouldEnableMpvDiagnostics]），
+  /// media_kit 会把 error 级日志合成到 stream.error，需要在事件层过滤。
+  static bool get _ignoreLogDerivedErrors =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  static final RegExp _mpvUrlPattern =
+      RegExp(r'''(?:https?|rtsp|rtsps|ftp|smb)://\S+''', caseSensitive: false);
+
+  /// mpv 会把媒体 URL 原样打出来（`cplayer: Playing:` / `demux: Opening:`），
+  /// Emby/Jellyfin 的 `?api_key=<token>` 会因此落进设备日志。
+  /// 保留 scheme/host/path，查询串整体抹掉。
+  static String _redactMpvLogText(String text) {
+    if (!text.contains('://')) {
+      return text;
+    }
+    return text.replaceAllMapped(_mpvUrlPattern, (match) {
+      final raw = match.group(0) ?? '';
+      final uri = Uri.tryParse(raw);
+      if (uri == null || uri.host.isEmpty) {
+        return '<url>';
+      }
+      final path = uri.path;
+      return '${uri.scheme}://${uri.host}$path'
+          '${uri.hasQuery ? '?<redacted>' : ''}';
     });
   }
 
@@ -1216,7 +1283,9 @@ class MediaKitPlayerAdapter
       'lavf',
       'ffmpeg',
     };
-    if (prefixes.contains(prefix)) {
+    if (prefixes.contains(prefix) ||
+        // mpv 的前缀是层级的：ffmpeg/demuxer、vo/gpu-next、osd/libass……
+        prefixes.any((p) => prefix.startsWith('$p/'))) {
       return true;
     }
     final lower = text.toLowerCase();
@@ -1243,6 +1312,8 @@ class MediaKitPlayerAdapter
     _lastActualPosition = Duration.zero;
     _lastPositionTimestampUs = 0;
     _buffering.value = false;
+    // 换媒体/重试时重置转发预算，否则第二集会一条 mpv 日志都收不到。
+    _mpvLogLinesForwarded = 0;
   }
 
   void _markCurrentMediaReady(String evidence) {

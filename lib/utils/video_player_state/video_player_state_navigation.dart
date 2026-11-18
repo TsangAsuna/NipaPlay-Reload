@@ -908,11 +908,6 @@ extension VideoPlayerStateNavigation on VideoPlayerState {
           pollEmbeddedSubtitleOverlayTextPaused();
         }
         if (_status == PlayerStatus.playing) {
-          // 诊断（release 可见）：Media Kit 播放期 10s 采样一次真实内核
-          // 字幕状态，覆盖"轨道勾选但画面无字幕"的全部分支。
-          debugSampleSubtitleKernelState();
-          // 一次性自愈：起播 2.5s 仍无字幕文本时重写 sid，强制重载字幕流。
-          maybeRearmSilentSubtitle();
           if (isBuffering) {
             // Buffering is not a user pause. Keep the ticker available for
             // recovery, but freeze its media anchor and skip drift correction.
@@ -921,6 +916,13 @@ extension VideoPlayerStateNavigation on VideoPlayerState {
             return;
           }
           var playerPosition = player.position;
+          // 诊断（release 可见）：Media Kit 播放期 10s 采样一次真实内核
+          // 字幕状态，覆盖"轨道勾选但画面无字幕"的全部分支。放在缓冲
+          // 判定之后：起播卡缓冲时没有轨道、采样只会误导。
+          debugSampleSubtitleKernelState();
+          // 一次性自愈：播放推进 2.5s 仍无字幕文本时重写 sid，强制重载
+          // 字幕流（用播放进度而不是墙钟，避免在缓冲期白耗机会）。
+          maybeRearmSilentSubtitle(positionMs: playerPosition);
           final playerDuration = player.mediaInfo.duration;
 
           if (playerPosition >= 0 && playerDuration > 0) {

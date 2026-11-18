@@ -411,11 +411,19 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
   }
 
   /// 当前选中的内嵌字幕轨是否为位图轨（无文本流）。
+  /// 适配器只有在 mpv 的轨道事件回来后才更新 activeSubtitleTracks，
+  /// 而字幕菜单是"先写勾选、立刻通知"，所以刚点下的那一条必须从
+  /// SubtitleManager 的最近选择里补上，否则文本轨→位图轨会漏判成
+  /// 可叠层，写 sub-visibility=no 后位图字幕整块黑掉。
   bool _isBitmapSubtitleTrackActive() {
     try {
       final subtitles = player.mediaInfo.subtitle;
       if (subtitles == null || subtitles.isEmpty) return false;
-      for (final index in player.activeSubtitleTracks) {
+      final candidates = <int>{
+        ...player.activeSubtitleTracks,
+        subtitleManager.lastSelectedEmbeddedTrackIndex,
+      };
+      for (final index in candidates) {
         if (index < 0 || index >= subtitles.length) continue;
         final codec =
             (subtitles[index].metadata['codec'] ?? '').toString().toLowerCase();
@@ -472,39 +480,57 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
     _lastSubtitleKernelSampleMs = nowMs;
     unawaited(() async {
       try {
-        final sid = await player.getLiveProperty('sid') ?? '';
-        final visibility = await player.getLiveProperty('sub-visibility') ?? '';
-        final text = await player.getLiveProperty('sub-text') ?? '';
-        final scale = await player.getLiveProperty('sub-scale') ?? '';
-        final pos = await player.getLiveProperty('sub-pos') ?? '';
-        final marginY = await player.getLiveProperty('sub-margin-y') ?? '';
-        // 下列属性决定"轨道选中却不出字"是否发生在 mpv 内部：
-        // sub-start/sub-end 非空 = 字幕包已解码到当前时刻；两者恒空 =
-        // 解复用/投递就断了（与 libass 无关）。sub-delay 离谱 = 整集
-        // 字幕被平移出时间轴。drop-count 暴涨 = 渲染跟不上（画面跳帧）。
-        final delay = await player.getLiveProperty('sub-delay') ?? '';
-        final subStart = await player.getLiveProperty('sub-start') ?? '';
-        final subEnd = await player.getLiveProperty('sub-end') ?? '';
-        final override = await player.getLiveProperty('sub-ass-override') ?? '';
-        final opacity = await player.getLiveProperty('sub-opacity') ?? '';
-        final font = await player.getLiveProperty('sub-font') ?? '';
-        final fontsDir = await player.getLiveProperty('sub-fonts-dir') ?? '';
-        final embeddedFonts = await player.getLiveProperty('embeddedfonts') ?? '';
-        final speed = await player.getLiveProperty('speed') ?? '';
-        final dropCount = await player.getLiveProperty('frame-drop-count') ?? '';
-        final mistimed =
-            await player.getLiveProperty('mistimed-frame-count') ?? '';
+        // 逐个读取，null 保留下来单独标注——`?? ''` 会把"读取失败"和
+        // 真实空值混成同一个样子，日志判读时会得出相反结论。
+        const names = <String>[
+          'sid',
+          'sub-visibility',
+          'sub-text',
+          'sub-scale',
+          'sub-pos',
+          'sub-margin-y',
+          // sub-start/sub-end 非空 = 字幕包已解码到当前时刻；恒空 =
+          // 解复用/投递就断了（与 libass 无关）。sub-delay 离谱 = 整集
+          // 字幕被平移出时间轴。drop-count 暴涨 = 渲染跟不上（跳帧）。
+          'sub-delay',
+          'sub-start',
+          'sub-end',
+          'sub-ass-override',
+          'sub-opacity',
+          'sub-font',
+          'sub-fonts-dir',
+          'embeddedfonts',
+          'speed',
+          'frame-drop-count',
+          'mistimed-frame-count',
+        ];
+        final values = <String, String?>{};
+        for (final name in names) {
+          values[name] = await player.getLiveProperty(name);
+        }
         if (_isDisposed) return;
+        final nulls = <String>[
+          for (final entry in values.entries)
+            if (entry.value == null) entry.key,
+        ];
+        final text = values['sub-text'] ?? '';
         debugPrint(
-          '[字幕采样] sid=$sid vis=$visibility textLen=${text.length} '
-          'subStart="$subStart" subEnd="$subEnd" delay=$delay '
-          'scale=$scale pos=$pos marginY=$marginY override=$override '
-          'opacity=$opacity font="$font" fontsDir="$fontsDir" '
-          'embeddedFonts=$embeddedFonts speed=$speed '
-          'dropped=$dropCount mistimed=$mistimed '
+          '[字幕采样] sid=${values['sid']} '
+          'vis=${values['sub-visibility']} textLen=${text.length} '
+          'subStart="${values['sub-start']}" '
+          'subEnd="${values['sub-end']}" delay=${values['sub-delay']} '
+          'scale=${values['sub-scale']} pos=${values['sub-pos']} '
+          'marginY=${values['sub-margin-y']} '
+          'override=${values['sub-ass-override']} '
+          'opacity=${values['sub-opacity']} '
+          'font="${values['sub-font']}" '
+          'embeddedFonts=${values['embeddedfonts']} '
+          'speed=${values['speed']} dropped=${values['frame-drop-count']} '
+          'mistimed=${values['mistimed-frame-count']} '
           'tracks=${player.activeSubtitleTracks} '
           'mode=$_embeddedSubtitleOverlayMode '
-          'fallback=$_embeddedOverlayFallbackActive',
+          'fallback=$_embeddedOverlayFallbackActive '
+          'nulls=$nulls',
         );
       } catch (_) {}
     }());
@@ -515,38 +541,71 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
   /// 覆盖"选轨发生在解复用器就绪之前：sid 写进去了、字幕包却从未投递"的
   /// 竞态（mpv 只在 sub_reload 时补发历史字幕包）。
   /// 用 ticker 驱动而不是 Timer，避免测试里的 timersPending 不变量。
-  void maybeRearmSilentSubtitle() {
+  /// [positionMs] 用播放进度而不是墙钟：起播缓冲 2.5s 时解复用器可能还
+  /// 没就绪，那时重选只会白耗掉这一次自愈机会。
+  void maybeRearmSilentSubtitle({int? positionMs}) {
     if (kIsWeb || _isDisposed || _silentSubtitleRearmDone) return;
     if (_status != PlayerStatus.playing) return;
     if (player.getPlayerKernelName() != 'Media Kit') return;
-    final startMs = _lastPlaybackStartMs;
-    if (startMs <= 0) return;
-    if (DateTime.now().millisecondsSinceEpoch - startMs < 2500) return;
+    final progressMs = positionMs ?? player.position.inMilliseconds;
+    if (progressMs < 2500) return;
     if (player.activeSubtitleTracks.isEmpty) return;
     if (activeExternalSubtitlePaths.isNotEmpty) return;
-    _silentSubtitleRearmDone = true;
     unawaited(() async {
       try {
         final text = await player.getLiveProperty('sub-text') ?? '';
         if (text.isNotEmpty) return;
-        final sid = await player.getLiveProperty('sid') ?? '';
-        final subStart = await player.getLiveProperty('sub-start') ?? '';
+        var sid = await player.getLiveProperty('sid') ?? '';
         if (sid.isEmpty || sid == 'no' || sid == 'auto') {
-          debugPrint('[字幕自愈] 不重选：sid=$sid subStart="$subStart"');
-          return;
+          // mpv 还没把轨道 id 认下来——这时按勾选轨自己解析出目标 id，
+          // 否则这一次自愈会被白白跳过（而这正是要修的竞态）。
+          final resolved = _resolveActiveEmbeddedSubtitleMpvId();
+          final subStart = await player.getLiveProperty('sub-start') ?? '';
+          if (resolved == null) {
+            debugPrint(
+              '[字幕自愈] 跳过：mpv sid=$sid，勾选轨也解析不出 id'
+              '（subStart="$subStart"）',
+            );
+            return;
+          }
+          sid = resolved;
         }
+        if (_silentSubtitleRearmDone || _isDisposed) return;
+        _silentSubtitleRearmDone = true;
+        final previousTracks = List<int>.of(player.activeSubtitleTracks);
         debugPrint(
-          '[字幕自愈] 2.5s 内 0 文本，强制重选 sid=$sid（等价手动取消再勾选，'
-          'subStart="$subStart"）',
+          '[字幕自愈] ${(progressMs / 1000).toStringAsFixed(1)}s 处仍 0 文本，'
+          '强制重选 sid=$sid（等价手动取消再勾选）',
         );
         // 同值 sid 写入通常被 mpv 短路成 no-op，这里先 no 再 id 强制重载
         // 字幕解码器；与用户在 UI 里"取消勾选再打勾"等价，但自动执行一次。
         player.setProperty('sid', 'no');
         player.setProperty('sid', sid);
+        // 适配器收到 sid=no 会先清空勾选状态，恢复镜像避免菜单闪烁/误判。
+        player.activeSubtitleTracks = previousTracks;
         // 重选可能把 sub-visibility 打回默认，按当前模式重新同步一次。
         applyEmbeddedSubtitleOverlayKernelState();
       } catch (_) {}
     }());
+  }
+
+  /// 从当前勾选的内嵌轨解析 mpv 的 sid（metadata['id']）。适配器把 mpv
+  /// 的轨道 id 放在 metadata 里，这里不依赖 mpv 的实时 sid。
+  String? _resolveActiveEmbeddedSubtitleMpvId() {
+    try {
+      final subtitles = player.mediaInfo.subtitle;
+      if (subtitles == null || subtitles.isEmpty) return null;
+      final candidates = <int>{
+        ...player.activeSubtitleTracks,
+        subtitleManager.lastSelectedEmbeddedTrackIndex,
+      };
+      for (final index in candidates) {
+        if (index < 0 || index >= subtitles.length) continue;
+        final id = (subtitles[index].metadata['id'] ?? '').toString();
+        if (id.isNotEmpty && id != 'no' && id != 'auto') return id;
+      }
+    } catch (_) {}
+    return null;
   }
 
   /// 暂停态刷新计时器汇聚点：pause() 会停掉 UI ticker（整块叠层的暂停

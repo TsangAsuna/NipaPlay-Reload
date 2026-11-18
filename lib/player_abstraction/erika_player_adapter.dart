@@ -923,6 +923,7 @@ class ErikaPlayerAdapter
       _lastAudioOutputStatus = const <String, dynamic>{};
       _lastNativeError = null;
       _nativeFailureDumped = false;
+      _diagnosticsGeneration++;
       _externalSubtitleTrackIds.clear();
       _externalSubtitleGeneration++;
     }
@@ -935,6 +936,7 @@ class ErikaPlayerAdapter
       return;
     }
     await _player.ensureCreated();
+    _nativeFailureDumped = false;
     try {
       await _player.open(
         _media,
@@ -943,8 +945,10 @@ class ErikaPlayerAdapter
     } catch (error) {
       // release 可见：open 只抛一句 "open failed with ErikaStatus N"，
       // 真正原因（HTTP 状态 / 容器解析 / 解码器）在原生日志里。
+      // 不 await：诊断调用会去拿原生播放器锁，恰好在引擎卡住时最可能
+      // 不返回；失败路径必须先抛出，诊断在后台补抓（内部有超时）。
       debugPrint('[Erika] prepare open 失败: $error');
-      await _dumpErikaNativeFailureDetails('open');
+      unawaited(_dumpErikaNativeFailureDetails('open'));
       rethrow;
     }
     _subtitleTrace('prepare open complete media=$_media');
@@ -952,32 +956,60 @@ class ErikaPlayerAdapter
   }
 
   /// 每次打开媒体只抓一次：liberika 的原生诊断快照 + 日志尾巴。
-  /// 0.3.x 才有这两个接口，老运行时会抛 UnsupportedError，忽略即可。
+  /// 0.3.x 才有这两个接口，老运行时抛 UnsupportedError，忽略即可。
+  /// Windows 没有诊断桥（0.3.0 起就是这样），直接跳过省两次往返。
   Future<void> _dumpErikaNativeFailureDetails(String phase) async {
-    if (_nativeFailureDumped) {
+    if (_nativeFailureDumped ||
+        _disposed ||
+        defaultTargetPlatform == TargetPlatform.windows) {
       return;
     }
     _nativeFailureDumped = true;
+    final generation = _diagnosticsGeneration;
+    bool stale() => _disposed || generation != _diagnosticsGeneration;
     try {
-      final snapshot = await _player.getDiagnosticsSnapshot();
+      final snapshot = await _player
+          .getDiagnosticsSnapshot()
+          .timeout(const Duration(seconds: 3));
+      if (stale()) return;
       debugPrint(
-        '[Erika诊断] $phase ${_truncateForLog(jsonEncode(snapshot), 1500)}',
+        '[Erika诊断] $phase ${_truncateForLog(_safeJson(snapshot), 1500)}',
       );
     } catch (e) {
+      if (stale()) return;
       debugPrint('[Erika诊断] $phase 快照不可用: $e');
     }
     try {
-      final logs = await _player.getLogs(limit: 120);
+      final logs = await _player
+          .getLogs(limit: 40, minLevel: 'info')
+          .timeout(const Duration(seconds: 3));
+      if (stale()) return;
       final entries = logs['entries'];
       if (entries is List) {
         for (final entry in entries) {
-          debugPrint('[Erika原生] $entry');
+          if (stale()) return;
+          debugPrint('[Erika原生] ${_truncateForLog('$entry', 300)}');
         }
       } else {
-        debugPrint('[Erika原生] ${_truncateForLog(jsonEncode(logs), 1500)}');
+        // 只投影关键字段，避免把整份最多 ~512 KiB 的文档编码一遍。
+        debugPrint(
+          '[Erika原生] keys=${logs.keys.toList()} '
+          'nextSeq=${logs['nextSeq']} count=${logs.length}',
+        );
       }
     } catch (e) {
+      if (stale()) return;
       debugPrint('[Erika原生] 日志不可用: $e');
+    }
+  }
+
+  /// jsonEncode 遇到 NaN/Infinity/Uint8List 会抛错，退化到 toString 至少
+  /// 能留下内容，别把整条诊断吞成"不可用"。
+  static String _safeJson(Object? value) {
+    try {
+      return jsonEncode(value);
+    } catch (_) {
+      return '$value';
     }
   }
 
@@ -985,6 +1017,7 @@ class ErikaPlayerAdapter
       text.length <= max ? text : '${text.substring(0, max)}…(${text.length})';
 
   bool _nativeFailureDumped = false;
+  int _diagnosticsGeneration = 0;
 
   @override
   void seek({required int position}) {

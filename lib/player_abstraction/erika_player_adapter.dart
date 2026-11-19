@@ -1387,6 +1387,9 @@ class ErikaPlayerAdapter
   bool get supportsUpscaler => _isSupported;
 
   Future<void> setUpscaler(PlayerUpscalerMode mode) async {
+    // 先翻弹幕所有权标志（supportsNativeDanmaku 读它），再调原生；
+    // 调用方在 setUpscaler 返回后做弹幕归属调和。
+    _upscalerActiveForDanmaku = mode != PlayerUpscalerMode.off;
     _lastUpscalerStatus = PlayerUpscalerStatus(
       requestedMode: mode,
       activeBackend: mode == PlayerUpscalerMode.off
@@ -1471,8 +1474,16 @@ class ErikaPlayerAdapter
   // driving its own Flutter danmaku overlay. The list uses NipaPlay's standard
   // danmaku maps ({time, content, type, color, ...}); Erika's JSON parser
   // accepts that shape directly, so it is forwarded as-is.
+  //
+  // 例外：luma 超分（ArtCNN/Anime4K）开启时弹幕与视频走同一条合成管线，
+  // 每帧 CNN 推理把 tick 预算吃满，弹幕（逐帧移动、对帧率最敏感）会
+  // 一顿一顿。此时 supportsNativeDanmaku 翻 false → UI 回退 Flutter 弹幕
+  // 叠层（与 CNN 合成解耦，按面板节奏渲染）；关闭超分自动恢复原生。
 
-  bool get supportsNativeDanmaku => _isSupported;
+  /// 最近一次 setUpscaler 是否为非 off 档（决定弹幕所有权，见上）。
+  bool _upscalerActiveForDanmaku = false;
+
+  bool get supportsNativeDanmaku => _isSupported && !_upscalerActiveForDanmaku;
 
   Future<void> loadDanmakuList(List<Map<String, dynamic>> danmakuList) async {
     if (!_isSupported) {

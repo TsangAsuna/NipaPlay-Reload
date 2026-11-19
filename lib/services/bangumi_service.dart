@@ -413,6 +413,39 @@ class BangumiService {
       }
     }
 
+    // animeId == 0：弹弹play 服务器上未匹配/自有条目（library 返回
+    // animeId=0）。没有 Bangumi 元数据可查——自定义 Bangumi API 镜像会
+    // 对 ID 0 报"参数不符合规则"，官方端也会白发一次注定失败的请求。
+    // 与负数自定义媒体同样短路：返回空元数据对象，不落网络。
+    if (animeId == 0) {
+      final anime = BangumiAnime(
+        id: 0,
+        name: '',
+        nameCn: '',
+        imageUrl: '',
+        summary: null,
+        bangumiUrl: '',
+        airDate: DateTime.now().toIso8601String(),
+        airWeekday: null,
+        isOnAir: false,
+        totalEpisodes: 0,
+        rating: 0.0,
+        ratingDetails: {},
+        tags: [],
+        metadata: [],
+        typeDescription: '',
+        isNSFW: false,
+        platform: '',
+        isFavorited: false,
+        titles: [],
+        searchKeyword: '',
+        language: expectedLanguage,
+        episodeList: [],
+      );
+      _rememberDetail(0, anime, DateTime.now());
+      return anime;
+    }
+
     // 对于自定义媒体信息（animeId为负数），尝试从本地数据生成
     if (animeId < 0) {
       // 这里可以从WatchHistoryProvider获取相关数据生成BangumiAnime

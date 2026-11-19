@@ -611,7 +611,7 @@ class _DandanplayRemoteLibraryViewState
   ) {
     final coverUrl = _resolveCoverUrlForGroup(group, provider);
 
-    if (group.animeId != null) {
+    if (group.animeId != null && group.animeId! > 0) {
       final animeId = group.animeId!;
       // 缓存命中（含"拉过但为空"）直接渲染；在途任务也不新建。
       // 失败不写缓存（保持与原 FutureBuilder 一致的重试语义）。
@@ -751,6 +751,11 @@ class _DandanplayRemoteLibraryViewState
   }
 
   Future<String?> _loadCoverFromSources(int animeId) async {
+    // animeId<=0（未匹配/自有条目）没有 Bangumi 元数据，跳过详情查询，
+    // 直接走弹弹play 图片 hash 回退（自定义镜像对 ID 0 报参数错误）。
+    if (animeId <= 0) {
+      return null;
+    }
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = 'media_library_image_url_$animeId';

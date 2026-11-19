@@ -194,6 +194,9 @@ class DandanplayRemoteProvider extends ChangeNotifier {
       grouped.putIfAbsent(episode.animeId, () => []).add(episode);
     }
 
+    // 按 animeId 增量重建：内容没变的分组直接复用旧 group 对象——
+    // 每次全量 refresh 都 new 一批新对象会让"排在后面的番剧"跟着
+    // 重新加载（数据没变但对象换了，卡片层全部失效重建）。
     final List<DandanplayRemoteAnimeGroup> groups = [];
     grouped.forEach((animeId, items) {
       items.sort((a, b) {
@@ -204,12 +207,16 @@ class DandanplayRemoteProvider extends ChangeNotifier {
         return aTime.compareTo(bTime);
       });
       final latest = items.last;
-      groups.add(DandanplayRemoteAnimeGroup(
-        animeId: animeId,
-        title: latest.animeTitle,
-        episodes: List.unmodifiable(items),
-        latestPlayTime: latest.lastPlay ?? latest.created,
-      ));
+      final reused = _reuseGroupIfUnchanged(animeId, latest, items);
+      groups.add(
+        reused ??
+            DandanplayRemoteAnimeGroup(
+              animeId: animeId,
+              title: latest.animeTitle,
+              episodes: List.unmodifiable(items),
+              latestPlayTime: latest.lastPlay ?? latest.created,
+            ),
+      );
     });
 
     groups.sort((a, b) {
@@ -220,6 +227,31 @@ class DandanplayRemoteProvider extends ChangeNotifier {
 
     _animeGroups = groups;
     notifyListeners();
+  }
+
+  DandanplayRemoteAnimeGroup? _reuseGroupIfUnchanged(
+    int? animeId,
+    DandanplayRemoteEpisode latest,
+    List<DandanplayRemoteEpisode> items,
+  ) {
+    for (final previous in _animeGroups) {
+      if (previous.animeId != animeId) continue;
+      if (previous.title != latest.animeTitle) return null;
+      if (previous.episodes.length != items.length) return null;
+      for (int i = 0; i < items.length; i++) {
+        final a = previous.episodes[i];
+        final b = items[i];
+        if (a.episodeId != b.episodeId ||
+            a.hash != b.hash ||
+            a.lastPlay != b.lastPlay ||
+            a.lastThumbnail != b.lastThumbnail ||
+            a.animeTitle != b.animeTitle) {
+          return null;
+        }
+      }
+      return previous;
+    }
+    return null;
   }
 
   @override

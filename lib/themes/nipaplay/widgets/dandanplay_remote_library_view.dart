@@ -48,6 +48,12 @@ class _DandanplayRemoteLibraryViewState
   Timer? _searchDebounce;
   final Map<int, String?> _coverCache = {}; // 复用本地缓存的番剧封面
   final Map<int, Future<String?>> _coverLoadingTasks = {};
+  // 简介结果缓存：FutureBuilder 每次 build 新建 future 会让所有可见卡片
+  // 闪回 waiting（父级任何 rebuild——退出播放器/历史更新/搜索框聚焦——
+  // 都触发），这是"简介消失再出现"的直接机制。resolved 后直接读表，
+  // future 只发一次，结果终身复用（详情网络层有内存 LRU，重复任务近乎零成本）。
+  final Map<int, BangumiAnime?> _summaryCache = {};
+  final Map<int, Future<BangumiAnime?>> _summaryTasks = {};
 
   @override
   void initState() {
@@ -606,26 +612,51 @@ class _DandanplayRemoteLibraryViewState
     final coverUrl = _resolveCoverUrlForGroup(group, provider);
 
     if (group.animeId != null) {
-      return FutureBuilder<BangumiAnime>(
-        future: BangumiService.instance.getAnimeDetails(group.animeId!),
-        builder: (context, snapshot) {
-          String? summary;
-          if (snapshot.hasData && snapshot.data!.summary != null) {
-            summary = snapshot.data!.summary;
-          }
-          return HorizontalAnimeCard(
-            key: ValueKey('dandan_${group.animeId ?? group.title}'),
-            title: group.title,
-            imageUrl: coverUrl,
-            source: '弹弹play',
-            rating: null,
-            onTap: () => _openAnimeDetail(group, provider),
-            summary: summary,
-          );
-        },
+      final animeId = group.animeId!;
+      // 缓存命中（含"拉过但为空"）直接渲染；在途任务也不新建。
+      // 失败不写缓存（保持与原 FutureBuilder 一致的重试语义）。
+      if (_summaryCache.containsKey(animeId)) {
+        return _buildAnimeCardBody(
+          group,
+          provider,
+          coverUrl,
+          _summaryCache[animeId],
+        );
+      }
+      if (_summaryTasks.containsKey(animeId)) {
+        return _buildAnimeCardBody(group, provider, coverUrl, null);
+      }
+      final task = BangumiService.instance
+          .getAnimeDetails(animeId)
+          .then((anime) {
+            _summaryCache[animeId] = anime;
+            if (mounted) {
+              setState(() {});
+            }
+            return anime;
+          })
+          .catchError((Object error) {
+            debugPrint('获取番剧简介失败($animeId): $error');
+            return null;
+          });
+      _summaryTasks[animeId] = task;
+      unawaited(
+        task.whenComplete(() {
+          _summaryTasks.remove(animeId);
+        }),
       );
+      return _buildAnimeCardBody(group, provider, coverUrl, null);
     }
 
+    return _buildAnimeCardBody(group, provider, coverUrl, null);
+  }
+
+  Widget _buildAnimeCardBody(
+    DandanplayRemoteAnimeGroup group,
+    DandanplayRemoteProvider provider,
+    String coverUrl,
+    BangumiAnime? summary,
+  ) {
     return HorizontalAnimeCard(
       key: ValueKey('dandan_${group.animeId ?? group.title}'),
       title: group.title,
@@ -633,7 +664,7 @@ class _DandanplayRemoteLibraryViewState
       source: '弹弹play',
       rating: null,
       onTap: () => _openAnimeDetail(group, provider),
-      summary: null,
+      summary: summary?.summary,
     );
   }
 

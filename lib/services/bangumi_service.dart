@@ -516,6 +516,20 @@ class BangumiService {
     }
   }
 
+  // 会话级一次性标记：cleanExpiredDetailCache 是全量扫 SharedPreferences
+  // 的重活，原来每次打开详情页都执行一遍（每条媒体库管线必打那条日志）。
+  // 改为每个 App 会话最多跑一次，与打开详情不再绑定。
+  bool _expiredDetailCacheCleanedThisSession = false;
+
+  /// 每个会话最多执行一次的过期详情缓存清理（见调用处注释）。
+  Future<void> cleanExpiredDetailCacheOnce() async {
+    if (_expiredDetailCacheCleanedThisSession) {
+      return;
+    }
+    _expiredDetailCacheCleanedThisSession = true;
+    return cleanExpiredDetailCache();
+  }
+
   // 清理过期的番剧详情缓存
   Future<void> cleanExpiredDetailCache() async {
     try {

@@ -58,6 +58,30 @@ class DandanplayService {
   static final Map<int, Future<Map<String, dynamic>>> _bangumiDetailsInFlight =
       {};
   static int _bangumiDetailsCacheEpoch = 0;
+  // 详情页状态类请求的短 TTL 缓存 + 在途合并：播放历史/收藏列表/收藏状态
+  // 本来零缓存，短时间内反复打开详情页（日志实测 64s 内 5 次全量管线）
+  // 每次都全量重拉。这里给 90 秒 TTL——同一番剧的观看状态/收藏/评分在
+  // 该窗口内直接复用，真实播放行为变化由提交播放历史时主动失效兜底。
+  static const Duration _watchStateCacheDuration = Duration(seconds: 90);
+  static Map<int, bool>? _watchStatusCache;
+  static DateTime? _watchStatusCacheTime;
+  static Future<Map<int, bool>>? _watchStatusInFlight;
+  static Set<int>? _favoriteAnimeIdsCache;
+  static DateTime? _favoriteStatusCacheTime;
+  static Future<Set<int>>? _favoriteStatusInFlight;
+  static final Map<int, int> _userRatingMemoryCache = {};
+  static final Map<int, DateTime> _userRatingMemoryCacheTime = {};
+  static final Map<int, Future<int>> _userRatingInFlight = {};
+
+  /// 提交播放历史/收藏/评分后作废状态缓存（下次详情页拿真实数据）。
+  static void _invalidateWatchStateCache() {
+    _watchStatusCache = null;
+    _watchStatusCacheTime = null;
+    _favoriteAnimeIdsCache = null;
+    _favoriteStatusCacheTime = null;
+    _userRatingMemoryCache.clear();
+    _userRatingMemoryCacheTime.clear();
+  }
   static bool get isLoggedIn => _isLoggedIn;
   static String? get userName => _userName;
   static String? get screenName => _screenName;
@@ -2036,6 +2060,8 @@ class DandanplayService {
         if (data['success'] == true) {
           debugPrint('[弹弹play服务] 播放历史提交成功');
           _clearBangumiDetailsCache();
+          // 提交播放历史后观看状态缓存作废，下次详情页拿到真实状态。
+          _invalidateWatchStateCache();
           return data;
         } else {
           throw Exception(data['errorMessage'] ?? '提交播放历史失败');
@@ -2345,6 +2371,54 @@ class DandanplayService {
       return watchStatus;
     }
 
+    // 短 TTL 缓存 + 在途合并：播放历史是全量接口，反复开详情页时没必要
+    // 每次都拉（日志实测 64s 内 5 次全量管线）。
+    final cached = _watchStatusCache;
+    final cacheTime = _watchStatusCacheTime;
+    if (cached != null &&
+        cacheTime != null &&
+        DateTime.now().difference(cacheTime) < _watchStateCacheDuration) {
+      bool coversAll = true;
+      for (final episodeId in episodeIds) {
+        if (!cached.containsKey(episodeId)) {
+          coversAll = false;
+          break;
+        }
+      }
+      if (coversAll) {
+        return {
+          for (final episodeId in episodeIds) episodeId: cached[episodeId]!,
+        };
+      }
+    }
+    final inFlight = _watchStatusInFlight;
+    if (inFlight != null) {
+      final result = await inFlight;
+      return {
+        for (final episodeId in episodeIds)
+          episodeId: result[episodeId] ?? false,
+      };
+    }
+
+    final request = _fetchEpisodesWatchStatus(episodeIds);
+    _watchStatusInFlight = request;
+    try {
+      final result = await request;
+      _watchStatusCache = result;
+      _watchStatusCacheTime = DateTime.now();
+      return {
+        for (final episodeId in episodeIds)
+          episodeId: result[episodeId] ?? false,
+      };
+    } finally {
+      _watchStatusInFlight = null;
+    }
+  }
+
+  static Future<Map<int, bool>> _fetchEpisodesWatchStatus(
+    List<int> episodeIds,
+  ) async {
+    final Map<int, bool> watchStatus = {};
     try {
       // 获取用户播放历史
       final historyData = await getUserPlayHistory();
@@ -2507,6 +2581,7 @@ class DandanplayService {
         if (data['success'] == true) {
           debugPrint('[弹弹play服务] 收藏添加成功');
           _clearBangumiDetailsCache(animeId);
+          _invalidateWatchStateCache();
           return data;
         } else {
           throw Exception(data['errorMessage'] ?? '添加收藏失败');
@@ -2559,6 +2634,7 @@ class DandanplayService {
         if (data['success'] == true) {
           debugPrint('[弹弹play服务] 收藏取消成功');
           _clearBangumiDetailsCache(animeId);
+          _invalidateWatchStateCache();
           return data;
         } else {
           throw Exception(data['errorMessage'] ?? '取消收藏失败');
@@ -2579,25 +2655,50 @@ class DandanplayService {
       return false; // 未登录时返回false
     }
 
+    // 短 TTL 缓存 + 在途合并（收藏列表同样是全量接口）。缓存收藏的
+    // animeId 集合，按 animeId 精确匹配——语义与原实现一致。
+    final cached = _favoriteAnimeIdsCache;
+    final cacheTime = _favoriteStatusCacheTime;
+    if (cached != null &&
+        cacheTime != null &&
+        DateTime.now().difference(cacheTime) < _watchStateCacheDuration) {
+      return cached.contains(animeId);
+    }
+    final inFlight = _favoriteStatusInFlight;
+    if (inFlight != null) {
+      final ids = await inFlight;
+      return ids.contains(animeId);
+    }
+
+    final request = _fetchFavoriteAnimeIds();
+    _favoriteStatusInFlight = request;
+    try {
+      final ids = await request;
+      _favoriteAnimeIdsCache = ids;
+      _favoriteStatusCacheTime = DateTime.now();
+      return ids.contains(animeId);
+    } finally {
+      _favoriteStatusInFlight = null;
+    }
+  }
+
+  static Future<Set<int>> _fetchFavoriteAnimeIds() async {
     try {
       final favoritesData = await getUserFavorites();
 
       if (favoritesData['success'] == true &&
           favoritesData['favorites'] != null) {
         final List<dynamic> favorites = favoritesData['favorites'];
-
-        // 检查列表中是否包含指定的animeId
-        for (final favorite in favorites) {
-          if (favorite['animeId'] == animeId) {
-            return true;
-          }
-        }
+        return {
+          for (final favorite in favorites)
+            if (favorite['animeId'] is int) favorite['animeId'] as int,
+        };
       }
 
-      return false;
+      return <int>{};
     } catch (e) {
       debugPrint('[弹弹play服务] 检查收藏状态失败: $e');
-      return false; // 出错时返回false
+      return <int>{};
     }
   }
 
@@ -2607,6 +2708,32 @@ class DandanplayService {
       return 0; // 未登录时返回0
     }
 
+    // 短 TTL 缓存 + 在途合并（底层 getBangumiDetails 登录态 TTL 只有
+    // 15 分钟，日志里每 15 分钟后的首次详情页必多发一次网络请求）。
+    final cachedTime = _userRatingMemoryCacheTime[animeId];
+    if (cachedTime != null &&
+        DateTime.now().difference(cachedTime) < _watchStateCacheDuration &&
+        _userRatingMemoryCache.containsKey(animeId)) {
+      return _userRatingMemoryCache[animeId]!;
+    }
+    final inFlight = _userRatingInFlight[animeId];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final request = _fetchUserRating(animeId);
+    _userRatingInFlight[animeId] = request;
+    try {
+      final rating = await request;
+      _userRatingMemoryCache[animeId] = rating;
+      _userRatingMemoryCacheTime[animeId] = DateTime.now();
+      return rating;
+    } finally {
+      _userRatingInFlight.remove(animeId);
+    }
+  }
+
+  static Future<int> _fetchUserRating(int animeId) async {
     try {
       final bangumiDetails = await getBangumiDetails(animeId);
 

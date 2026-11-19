@@ -405,8 +405,10 @@ class _AnimeDetailPageState extends State<AnimeDetailPage>
     BangumiApiService.loginStatusNotifier
         .addListener(_onBangumiLoginStatusChanged);
 
-    // 启动时异步清理过期缓存
-    _bangumiService.cleanExpiredDetailCache().then((_) {
+    // 过期缓存清理是全量扫 SharedPreferences 的重活，且与"打开详情"无
+    // 因果——改为 BangumiService 会话级一次性执行（原每次开详情页都跑，
+    // 日志里每条管线必打"已清理过期的番剧详情缓存"即此）。
+    _bangumiService.cleanExpiredDetailCacheOnce().then((_) {
       debugPrint("[番剧详情] 已清理过期的番剧详情缓存");
     });
     _fetchAnimeDetails().then((_) {

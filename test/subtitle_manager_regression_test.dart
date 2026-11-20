@@ -174,30 +174,34 @@ void main() {
       await dir.delete(recursive: true);
     });
 
-    test('attaching an app-rendered srt turns the embedded track off', () {
+    // 多选共存语义：外挂 SRT 走 Flutter 叠层、内嵌轨走内核渲染，画面互不
+    // 占用，可以同时挂载（2026-11-20 用户工单）。原来"挂外挂关内嵌"的
+    // 互斥行为已移除。
+    test('attaching an app-rendered srt keeps the embedded track on', () {
       expect(delegate.activeSubtitleTracks, [0]);
       manager.setExternalSubtitle(srt.path);
       expect(manager.getAllActiveExternalSubtitlePaths(), [srt.path]);
-      expect(delegate.activeSubtitleTracks, isEmpty);
-    });
-
-    test('stacking an srt via the stack also turns the embedded track off',
-        () async {
-      await manager.addExternalSubtitleToStack(srt.path);
-      expect(delegate.activeSubtitleTracks, isEmpty);
-    });
-
-    test('choosing an embedded track detaches the external subtitle', () {
-      manager.setExternalSubtitle(srt.path);
-      manager.selectEmbeddedSubtitleTrack(0);
-      expect(manager.getAllActiveExternalSubtitlePaths(), isEmpty);
       expect(delegate.activeSubtitleTracks, [0]);
     });
 
-    test('turning subtitles off clears both sides', () {
+    test('stacking an srt via the stack keeps the embedded track on',
+        () async {
+      await manager.addExternalSubtitleToStack(srt.path);
+      expect(delegate.activeSubtitleTracks, [0]);
+    });
+
+    test('choosing an embedded track keeps the external srt attached', () {
+      manager.setExternalSubtitle(srt.path);
+      manager.selectEmbeddedSubtitleTrack(0);
+      expect(manager.getAllActiveExternalSubtitlePaths(), [srt.path]);
+      expect(delegate.activeSubtitleTracks, [0]);
+    });
+
+    test('turning subtitles off clears only the embedded side', () {
       manager.setExternalSubtitle(srt.path);
       manager.selectEmbeddedSubtitleTrack(-1);
-      expect(manager.getAllActiveExternalSubtitlePaths(), isEmpty);
+      // 关闭字幕只关内嵌轨；外挂的移除走菜单的"移除外挂"项。
+      expect(manager.getAllActiveExternalSubtitlePaths(), [srt.path]);
       expect(delegate.activeSubtitleTracks, isEmpty);
 
       delegate.activeSubtitleTracks = [2];

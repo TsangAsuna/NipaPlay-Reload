@@ -59,7 +59,7 @@ class _DandanplayRemoteLibraryViewState
   // 未匹配条目（animeId 空/0）的 Bangumi 镜像识别缓存：按标题键控。
   // 弹弹play 识别不了的条目没有 animeId，无法按 ID 查询；改走镜像的
   // searchSubjects + getSubject，识别成功用镜像封面替换弹弹play 默认图。
-  final Map<String, String> _unmatchedCoverCache = {};
+  final Map<String, String?> _unmatchedCoverCache = {};
   final Map<String, String?> _unmatchedSummaryCache = {};
   final Set<String> _unmatchedTasks = {};
   // 数据失效纪元：服务端重新匹配后 provider 会失效变化的番剧并递增；
@@ -698,9 +698,43 @@ class _DandanplayRemoteLibraryViewState
     );
   }
 
-  /// Bangumi 镜像识别未匹配条目：按标题搜索 → 取第一个命中 → 拉详情
-  /// 拿简介与封面（封面经镜像 CDN，规则上按 subject ID 绑死，不会串图）。
-  /// 识别失败静默保留弹弹play 默认封面。
+  /// 标题归一化：小写、去空白/标点/符号及 OVA/SP 等集数装饰词，
+  /// 让"xxx OVA"能与正传条目"xxx 第二季"比较基础标题。
+  static final RegExp _titleNoiseRegExp = RegExp(r'[\s\p{P}\p{S}]', unicode: true);
+
+  static String _normalizeTitleForMatch(String input) {
+    return input
+        .toLowerCase()
+        .replaceAll(_titleNoiseRegExp, '')
+        .replaceAll(RegExp(r'ova|oad|sp|特别篇|总集篇|完结篇'), '');
+  }
+
+  /// 关键词与候选标题的匹配分：1=归一化后完全一致，0.9=包含关系，
+  /// 其余用字符二元组 Dice 系数，0=完全无关。
+  static double _titleMatchScore(String keyword, String candidate) {
+    final a = _normalizeTitleForMatch(keyword);
+    final b = _normalizeTitleForMatch(candidate);
+    if (a.isEmpty || b.isEmpty) return 0;
+    if (a == b) return 1;
+    if (a.contains(b) || b.contains(a)) return 0.9;
+    if (a.length < 2 || b.length < 2) return 0;
+    final Set<String> bigramsA = {
+      for (var i = 0; i < a.length - 1; i++) a.substring(i, i + 2),
+    };
+    final Set<String> bigramsB = {
+      for (var i = 0; i < b.length - 1; i++) b.substring(i, i + 2),
+    };
+    var overlap = 0;
+    for (final g in bigramsA) {
+      if (bigramsB.contains(g)) overlap++;
+    }
+    return (2 * overlap) / (bigramsA.length + bigramsB.length);
+  }
+
+  /// Bangumi 镜像识别未匹配条目：按标题搜索 → 相似度评分取最优命中 →
+  /// 拉详情拿简介与封面。低于阈值的命中宁可不换封面——"搜索第一条
+  /// 直接用"会把无关番剧的封面张冠李戴（如美好世界 OVA 配上其它条目）。
+  /// 封面按当前 Bangumi 配置改写到镜像主机，未配置时保留源站 URL。
   Future<void> _identifyUnmatchedGroup(
     String keyword,
     String cacheKey,
@@ -709,33 +743,52 @@ class _DandanplayRemoteLibraryViewState
       final search = await BangumiApiService.searchSubjects(keyword, limit: 5);
       final List<dynamic> subjects =
           (search['data'] as List<dynamic>?) ?? const <dynamic>[];
-      if (subjects.isEmpty) {
+      int bestSubjectId = 0;
+      double bestScore = 0;
+      String bestName = '';
+      for (final s in subjects) {
+        if (s is! Map<String, dynamic>) continue;
+        final id = (s['id'] as num?)?.toInt() ?? 0;
+        if (id <= 0) continue;
+        final nameCn = s['name_cn']?.toString() ?? '';
+        final name = s['name']?.toString() ?? '';
+        var score = _titleMatchScore(keyword, nameCn);
+        final scoreName = _titleMatchScore(keyword, name);
+        if (scoreName > score) score = scoreName;
+        if (score > bestScore) {
+          bestScore = score;
+          bestSubjectId = id;
+          bestName = nameCn.isNotEmpty ? nameCn : name;
+        }
+      }
+      if (bestSubjectId <= 0 || bestScore < 0.5) {
+        _unmatchedCoverCache[cacheKey] = null;
         _unmatchedSummaryCache[cacheKey] = null;
+        debugPrint(
+          '[弹弹play库] 未匹配条目 "$keyword" 无相似命中'
+          '(最高分 ${bestScore.toStringAsFixed(2)})，保留弹弹play默认封面',
+        );
         if (mounted) setState(() {});
         return;
       }
-      final subjectId = (subjects.first['id'] as num?)?.toInt() ?? 0;
-      if (subjectId <= 0) {
-        _unmatchedSummaryCache[cacheKey] = null;
-        if (mounted) setState(() {});
-        return;
-      }
-      final detail = await BangumiApiService.getSubject(subjectId);
+      final detail = await BangumiApiService.getSubject(bestSubjectId);
       final images = detail['images'];
-      final String cover = (images is Map<String, dynamic>
+      final String rawCover = (images is Map<String, dynamic>
               ? (images['large'] ??
                   images['common'] ??
                   images['medium'] ??
                   '')
               : '')
           .toString();
+      final cover = await NetworkSettings.rewriteBangumiImageUrl(rawCover);
       final summaryText = (detail['summary'] ?? '').toString();
       _unmatchedCoverCache[cacheKey] = cover;
       _unmatchedSummaryCache[cacheKey] =
           summaryText.isEmpty ? null : summaryText;
       debugPrint(
-        '[弹弹play库] 未匹配条目 "$keyword" 经 Bangumi 镜像识别为 '
-        'subject $subjectId，封面走镜像 CDN',
+        '[弹弹play库] 未匹配条目 "$keyword" 识别为 subject $bestSubjectId'
+        '《$bestName》(相似度 ${bestScore.toStringAsFixed(2)})，'
+        '封面: $cover',
       );
       if (mounted) {
         setState(() {});

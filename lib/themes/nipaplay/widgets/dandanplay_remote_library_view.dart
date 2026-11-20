@@ -103,17 +103,13 @@ class _DandanplayRemoteLibraryViewState
           _unmatchedSummaryCache.clear();
           _unmatchedTasks.clear();
         }
-        // 数据失效纪元变化（服务端重新匹配等）→ 清内存封面/简介缓存，
-        // 卡片按新数据重新解析；持久化层由 provider 侧负责失效。
+        // 数据失效纪元变化（服务端重新匹配等）：不再整体清空内存简介/封面缓存。
+        // 简介走服务层缓存（一劳永逸，无 TTL）；封面由 media_library_image_url_*
+        // 持久化 URL + 镜像重写管理。整体清空会导致切回页面时全部重载，
+        // 与“一次获取长期保留”的模型以及上游 1.11.12 行为不一致。
+        // 仅同步 epoch 标记，供调试/外部观测使用。
         if (provider.libraryCacheEpoch != _lastLibraryCacheEpoch) {
           _lastLibraryCacheEpoch = provider.libraryCacheEpoch;
-          _coverCache.clear();
-          _coverLoadingTasks.clear();
-          _summaryCache.clear();
-          _summaryTasks.clear();
-          _unmatchedCoverCache.clear();
-          _unmatchedSummaryCache.clear();
-          _unmatchedTasks.clear();
         }
         final isLargeScreen = NipaplayLargeScreenModeScope.isActiveOf(context);
         if (!provider.isInitialized && provider.isLoading) {

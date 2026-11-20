@@ -249,6 +249,9 @@ class DandanplayRemoteProvider extends ChangeNotifier {
         '失效其持久化封面缓存 (epoch=$_dataInvalidationEpoch)',
       );
     }
+    // 跨会话基线比对（首次调用时加载持久化指纹），关闭期间服务端
+    // 重匹配的条目在这里被检出并失效。
+    unawaited(_checkCrossSessionRematches());
     notifyListeners();
   }
 
@@ -262,6 +265,85 @@ class DandanplayRemoteProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('[弹弹play库] 清理持久化封面失败: $e');
     }
+  }
+
+  // ---- 跨会话重匹配基线 ----
+  // bd29649 的失效机制只对照本会话内存里的旧分组：App 重启后
+  // _animeGroups 为空，服务端在关机期间重新匹配完全检测不到 → 旧匹配
+  // 时代的持久化封面继续命中。把每个 animeId 的标题+剧集指纹持久化，
+  // 首轮 rebuild 与基准比对，变化即失效。
+  static const String _fingerprintBaselineKey =
+      'dandanplay_library_group_fingerprints_v1';
+
+  Map<int, String>? _fingerprintBaseline;
+  bool _fingerprintBaselineLoaded = false;
+
+  static String _groupFingerprint(DandanplayRemoteAnimeGroup group) {
+    final episodeIds = group.episodes.map((e) => e.episodeId).toList()..sort();
+    return '${group.title}|${episodeIds.join(',')}';
+  }
+
+  Future<void> _loadFingerprintBaseline() async {
+    if (_fingerprintBaselineLoaded) return;
+    _fingerprintBaselineLoaded = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_fingerprintBaselineKey);
+      if (raw == null || raw.isEmpty) {
+        _fingerprintBaseline = {};
+        return;
+      }
+      final decoded = json.decode(raw) as Map<String, dynamic>;
+      _fingerprintBaseline = decoded.map(
+        (k, v) => MapEntry(int.tryParse(k) ?? -1, v.toString()),
+      );
+    } catch (e) {
+      debugPrint('[弹弹play库] 加载分组指纹基线失败: $e');
+      _fingerprintBaseline = {};
+    }
+  }
+
+  Future<void> _checkCrossSessionRematches() async {
+    await _loadFingerprintBaseline();
+    final baseline = _fingerprintBaseline;
+    if (baseline == null || _animeGroups.isEmpty) return;
+
+    final changed = <int?>{};
+    final current = <int, String>{};
+    for (final group in _animeGroups) {
+      final id = group.animeId;
+      if (id == null || id <= 0) continue; // 未匹配条目不持久化封面
+      final fp = _groupFingerprint(group);
+      current[id] = fp;
+      final previous = baseline[id];
+      if (previous != null && previous != fp) {
+        changed.add(id);
+      }
+    }
+    // 消失的 animeId：其持久化封面不再可靠。
+    changed.addAll(baseline.keys.where((id) => !current.containsKey(id)));
+
+    if (changed.isNotEmpty) {
+      _dataInvalidationEpoch++;
+      unawaited(_clearPersistedCovers(changed));
+      debugPrint(
+        '[弹弹play库] 跨会话检测到 ${changed.length} 个番剧重匹配/消失，'
+        '失效持久化封面 (epoch=$_dataInvalidationEpoch)',
+      );
+    }
+    // 写回本轮基线（含首次运行：空基线只记录，不判变化）。
+    _fingerprintBaseline = current;
+    unawaited(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final encoded = json.encode(
+          current.map((k, v) => MapEntry(k.toString(), v)),
+        );
+        await prefs.setString(_fingerprintBaselineKey, encoded);
+      } catch (e) {
+        debugPrint('[弹弹play库] 保存分组指纹基线失败: $e');
+      }
+    }());
   }
 
   /// 视图层据此清自己的内存缓存（见 dandanplay_remote_library_view）。

@@ -10,7 +10,6 @@ import './dandanplay_service.dart';
 import 'package:nipaplay/services/web_remote_access_service.dart';
 import 'package:nipaplay/utils/chinese_converter.dart';
 import 'package:nipaplay/utils/network_settings.dart';
-
 class BangumiService {
   static final BangumiService instance = BangumiService._();
   static const String _basePath = '/api/v2';
@@ -77,6 +76,9 @@ class BangumiService {
 
   BangumiService._() {
     _client = http.DandanplayHttpClient();
+    // 服务器配置变化（镜像/弹弹play 服务器切换）→ 清内存缓存。
+    // 持久化键由 NetworkSettings._invalidateServerDerivedCaches 负责。
+    NetworkSettings.onServerConfigChanged = invalidateServerCaches;
   }
 
   // 根据番剧ID获取缓存时间
@@ -100,10 +102,30 @@ class BangumiService {
 
   BangumiAnime? getAnimeDetailsFromMemory(int animeId) {
     if (_detailsCache.containsKey(animeId)) {
-      // 即使缓存过期也返回数据，优先保证显示
-      return _detailsCache[animeId];
+      // 即使缓存过期也返回数据，优先保证显示。缓存保留源站原始 URL，
+      // 这里同步改写：调用方（详情页/播放器/加载浮层）拿到的是当前
+      // Bangumi 配置下可加载的 URL（依赖 NetworkSettings 的镜像主机
+      // 缓存，冷启动未解析时原样返回）。
+      final cached = _detailsCache[animeId]!;
+      final rewritten = NetworkSettings.rewriteBangumiImageUrlSync(cached.imageUrl);
+      if (rewritten == cached.imageUrl) {
+        return cached;
+      }
+      return cached.copyWith(imageUrl: rewritten);
     }
     return null;
+  }
+
+  /// 服务器配置变化（Bangumi 镜像 / 弹弹play 服务器切换）后的内存失效。
+  /// 由 NetworkSettings.onServerConfigChanged 回调触发；持久化层的键
+  /// 清理由设置层负责，这里只管内存映射。
+  void invalidateServerCaches() {
+    _detailsCache.clear();
+    _detailsCacheTime.clear();
+    _detailRequests.clear();
+    _listCache.clear();
+    // 日历走 _preloadedAnimes/_listCache，置空后下次 getCalendar 重取。
+    _preloadedAnimes = null;
   }
 
   String _customBackgroundKey(int animeId) =>
@@ -137,6 +159,19 @@ class BangumiService {
 
   Future<http.Response> _makeRequest(String url,
       {int maxRetries = 3, int priority = 0}) async {
+    // 全局限流冷却：429 后不再立即撞网关，等冷却窗口过去再排队。
+    // （不是直接失败——封面/简介调用方会走缓存回退，冷启动时两者
+    // 都是空的，直接失败等于整屏没封面。）
+    final until = _rateLimitedUntil;
+    if (until != null) {
+      final wait = until.difference(DateTime.now());
+      if (wait > Duration.zero && wait < const Duration(seconds: 30)) {
+        await Future.delayed(wait);
+        _rateLimitedUntil = null;
+      } else if (wait >= const Duration(seconds: 30)) {
+        _rateLimitedUntil = null;
+      }
+    }
     final completer = Completer<http.Response>();
     _requestQueue.add(_RequestItem(url, maxRetries, priority, completer));
     _processQueue();
@@ -200,6 +235,15 @@ class BangumiService {
         if (response.statusCode == 200) {
           item.completer.complete(response);
           return;
+        } else if (response.statusCode == 429) {
+          // 网关限流：立即失败并触发全局冷却。重试只会火上浇油——
+          // 清缓存冷启动时几十个条目各重试 3 次，60+ 发请求把队列和
+          // 网关一起堵死（实测日志：成对的"已达到最大重试次数 429"）。
+          _rateLimitedUntil =
+              DateTime.now().add(const Duration(seconds: 10));
+          item.completer.completeError(
+              Exception('HTTP请求失败: 429（网关限流，已进入10秒冷却）'));
+          return;
         } else {
           if (response.bodyBytes.length < 1000) {}
           throw Exception('HTTP请求失败: ${response.statusCode}');
@@ -209,6 +253,7 @@ class BangumiService {
           item.completer.completeError(e);
           return;
         }
+        // 429 已直接 complete，不会走到这里；其它错误按退避重试。
         retryCount++;
         if (retryCount == item.maxRetries) {
           item.completer.completeError(Exception('请求失败，已达到最大重试次数: $e'));
@@ -219,6 +264,10 @@ class BangumiService {
       }
     }
   }
+
+  /// 全局限流冷却截止时间：_makeRequest 在冷却期内直接失败，避免
+  /// 排队中的后续请求继续撞 429。
+  DateTime? _rateLimitedUntil;
 
   Future<List<BangumiAnime>> getCalendar(
       {bool forceRefresh = false, bool filterAdultContent = true}) async {
@@ -277,6 +326,8 @@ class BangumiService {
                   animeData as Map<String, dynamic>);
               // 转换为繁体中文（如果需要）
               anime = await ChineseConverter.convertAnime(anime);
+              // 新番封面同样指向 lain.bgm.tv：配置镜像时改写，否则国内直连失败。
+              anime = await _withRewrittenCover(anime);
               _listCache[anime.id.toString()] = anime; // Update memory cache
               animes.add(anime);
             } catch (e) {

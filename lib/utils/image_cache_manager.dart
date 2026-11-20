@@ -10,6 +10,8 @@ import 'dart:io' if (dart.library.io) 'dart:io';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nipaplay/utils/network_settings.dart';
 import 'storage_service.dart';
 import 'package:nipaplay/services/media_server_image_loader.dart';
 
@@ -650,6 +652,28 @@ class ImageCacheManager {
       // 清除 Flutter 的图片缓存
       PaintingBinding.instance.imageCache.clear();
       PaintingBinding.instance.imageCache.clearLiveImages();
+
+      // 用户显式清空缓存 = 全部重新获取：字节缓存清了但元数据层不清的话，
+      // "重新获取"拿到的还是同一批旧详情/旧封面 URL（bangumi_detail_*
+      // TTL 6h~7d、media_library_image_url_* 永久持久化）。一并清掉并
+      // 递增 revision，让视图层内存缓存同步失效。
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final metaKeys = prefs
+            .getKeys()
+            .where((k) =>
+                k.startsWith('bangumi_detail_') ||
+                k.startsWith('media_library_image_url_'))
+            .toList();
+        for (final key in metaKeys) {
+          await prefs.remove(key);
+        }
+        NetworkSettings.settingsRevision++;
+        NetworkSettings.onServerConfigChanged?.call();
+      } catch (e) {
+        debugPrint('[图片缓存] 清理封面/详情元数据缓存失败: $e');
+      }
+
       if (_cleanupTimer == null) {
         _startPeriodicCleanup();
       }

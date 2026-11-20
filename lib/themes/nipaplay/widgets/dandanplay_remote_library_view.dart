@@ -65,6 +65,7 @@ class _DandanplayRemoteLibraryViewState
   // 数据失效纪元：服务端重新匹配后 provider 会失效变化的番剧并递增；
   // 视图层检测到 epoch 变化即清内存缓存，封面/简介按新数据重新解析。
   int _lastLibraryCacheEpoch = -1;
+  int _lastSettingsRevision = -1;
 
   @override
   void initState() {
@@ -87,6 +88,19 @@ class _DandanplayRemoteLibraryViewState
   Widget build(BuildContext context) {
     return Consumer<DandanplayRemoteProvider>(
       builder: (context, provider, child) {
+        // 服务器配置变化（Bangumi 镜像 / 弹弹play 服务器切换 / 清除图片
+        // 缓存）：设置层清持久化键并递增 revision，这里同步清内存缓存，
+        // 避免已挂载页面继续渲染旧镜像/旧服务器时代的封面。
+        if (NetworkSettings.settingsRevision != _lastSettingsRevision) {
+          _lastSettingsRevision = NetworkSettings.settingsRevision;
+          _coverCache.clear();
+          _coverLoadingTasks.clear();
+          _summaryCache.clear();
+          _summaryTasks.clear();
+          _unmatchedCoverCache.clear();
+          _unmatchedSummaryCache.clear();
+          _unmatchedTasks.clear();
+        }
         // 数据失效纪元变化（服务端重新匹配等）→ 清内存封面/简介缓存，
         // 卡片按新数据重新解析；持久化层由 provider 侧负责失效。
         if (provider.libraryCacheEpoch != _lastLibraryCacheEpoch) {
@@ -649,8 +663,13 @@ class _DandanplayRemoteLibraryViewState
       if (_summaryTasks.containsKey(animeId)) {
         return _buildAnimeCardBody(group, provider, coverUrl, null);
       }
-      final task = BangumiService.instance
-          .getAnimeDetails(animeId)
+      // 冷启动（清缓存后首屏）时几十张卡片同刻入队详情请求，会撞弹弹play
+      // 网关限流（实测 429 成串）。按 animeId 错开 120ms 让请求摊开。
+      final stagger =
+          Duration(milliseconds: (animeId % 12) * 120);
+      final task = Future.delayed(stagger, () {
+            return BangumiService.instance.getAnimeDetails(animeId);
+          })
           .then((anime) {
             _summaryCache[animeId] = anime;
             if (mounted) {
@@ -681,14 +700,20 @@ class _DandanplayRemoteLibraryViewState
     }
     final cachedCover = _unmatchedCoverCache[unmatchedKey];
     final cachedSummary = _unmatchedSummaryCache[unmatchedKey];
-    if (!_unmatchedTasks.contains(unmatchedKey)) {
+    // containsKey 双重防重入：正/负结果都会进缓存，成功后不再逐 rebuild
+    // 重发搜索（旧守卫只看任务表，每次 setState 都会重新识别）。
+    if (!_unmatchedTasks.contains(unmatchedKey) &&
+        !_unmatchedCoverCache.containsKey(unmatchedKey)) {
       _unmatchedTasks.add(unmatchedKey);
       unawaited(
         _identifyUnmatchedGroup(group.title.trim(), unmatchedKey),
       );
     }
     return HorizontalAnimeCard(
-      key: ValueKey('dandan_${group.animeId ?? group.title}'),
+      // 与 _buildAnimeCardBody 的键一致：animeId<=0 时用 primaryHash 保证唯一。
+      key: ValueKey(
+        'dandan_${group.animeId ?? ''}_${group.primaryHash ?? group.title}',
+      ),
       title: group.title,
       imageUrl: (cachedCover?.isNotEmpty ?? false) ? cachedCover! : coverUrl,
       source: '弹弹play',
@@ -703,10 +728,14 @@ class _DandanplayRemoteLibraryViewState
   static final RegExp _titleNoiseRegExp = RegExp(r'[\s\p{P}\p{S}]', unicode: true);
 
   static String _normalizeTitleForMatch(String input) {
+    // 噪声词先于标点剥离，且用 ASCII 词边界：无边界时 "Space"→"ace"、
+    // "SPY"→"yfamily" 会误删；Dart \b 以 ASCII 词字符划界，CJK 字符
+    // 天然成界，"日常SP" 仍能正确删除。
     return input
         .toLowerCase()
+        .replaceAll(RegExp(r'\b(ova|oad|sp)\b'), '')
         .replaceAll(_titleNoiseRegExp, '')
-        .replaceAll(RegExp(r'ova|oad|sp|特别篇|总集篇|完结篇'), '');
+        .replaceAll(RegExp(r'特别篇|总集篇|完结篇'), '');
   }
 
   /// 关键词与候选标题的匹配分：1=归一化后完全一致，0.9=包含关系，
@@ -715,9 +744,10 @@ class _DandanplayRemoteLibraryViewState
     final a = _normalizeTitleForMatch(keyword);
     final b = _normalizeTitleForMatch(candidate);
     if (a.isEmpty || b.isEmpty) return 0;
+    // 短串先拦（含单字关键词）："恋"vs"恋曲" 会走包含分支直接 0.9 误判。
+    if (a.length < 2 || b.length < 2) return 0;
     if (a == b) return 1;
     if (a.contains(b) || b.contains(a)) return 0.9;
-    if (a.length < 2 || b.length < 2) return 0;
     final Set<String> bigramsA = {
       for (var i = 0; i < a.length - 1; i++) a.substring(i, i + 2),
     };
@@ -761,7 +791,7 @@ class _DandanplayRemoteLibraryViewState
           bestName = nameCn.isNotEmpty ? nameCn : name;
         }
       }
-      if (bestSubjectId <= 0 || bestScore < 0.5) {
+      if (bestSubjectId <= 0 || bestScore < 0.6) {
         _unmatchedCoverCache[cacheKey] = null;
         _unmatchedSummaryCache[cacheKey] = null;
         debugPrint(
@@ -807,7 +837,12 @@ class _DandanplayRemoteLibraryViewState
     BangumiAnime? summary,
   ) {
     return HorizontalAnimeCard(
-      key: ValueKey('dandan_${group.animeId ?? group.title}'),
+      // animeId 为 0/null 时多个组会撞出重复 key 'dandan_0'/'dandan_标题'，
+      // release 下元素状态复用会把一个组的图片搬到另一个组上（滚动串图），
+      // 键里加入 primaryHash 保证唯一。
+      key: ValueKey(
+        'dandan_${group.animeId ?? ''}_${group.primaryHash ?? group.title}',
+      ),
       title: group.title,
       imageUrl: coverUrl,
       source: '弹弹play',
@@ -823,7 +858,10 @@ class _DandanplayRemoteLibraryViewState
   ) {
     final fallback = provider.buildImageUrl(group.primaryHash ?? '') ?? '';
     final animeId = group.animeId;
-    if (animeId == null) {
+    // animeId<=0（未匹配/自有条目）不占用 _coverCache 槽位：所有 ID-0
+    // 组共用槽 0，先渲染的组会把封面 putIfAbsent 进去污染其它组（串图
+    // 的直接来源）。未匹配封面走标题键控的 _unmatchedCoverCache。
+    if (animeId == null || animeId <= 0) {
       return fallback;
     }
 
@@ -842,7 +880,13 @@ class _DandanplayRemoteLibraryViewState
       return;
     }
 
+    // 快照失效纪元：epoch 清缓存后旧在途任务若把旧 URL 写回，
+    // 会盖掉新纪元的数据（最后写者胜）。回写前比对，不一致即丢弃。
+    final epochAtStart = _lastLibraryCacheEpoch;
     final future = _loadCoverFromSources(animeId, title: title).then((url) {
+      if (_lastLibraryCacheEpoch != epochAtStart) {
+        return url;
+      }
       if ((url?.isNotEmpty ?? false) && mounted) {
         setState(() {
           _coverCache[animeId] = url;
@@ -867,6 +911,16 @@ class _DandanplayRemoteLibraryViewState
     DandanplayRemoteProvider provider,
     DandanplayRemoteAnimeGroup group,
   ) async {
+    // ID-0（未匹配）不读不写 _coverCache：槽 0 是所有未匹配组的公共位，
+    // 写入即串图。封面用识别缓存兜底，再退 hash 缩略图。
+    if (animeId <= 0) {
+      final unmatched =
+          _unmatchedCoverCache[group.title.trim().toLowerCase()];
+      if (unmatched?.isNotEmpty ?? false) {
+        return unmatched;
+      }
+      return provider.buildImageUrl(group.primaryHash ?? '');
+    }
     final cached = _coverCache[animeId];
     if (cached != null && cached.isNotEmpty) {
       return cached;
@@ -1067,7 +1121,9 @@ class _DandanplayRemoteLibraryViewState
           mounted) {
         // 首次进入先触发一次识别，让详情/卡片都能拿到镜像元数据。
         final unmatchedKey = group.title.trim().toLowerCase();
-        if (unmatchedKey.isNotEmpty && !_unmatchedTasks.contains(unmatchedKey)) {
+        if (unmatchedKey.isNotEmpty &&
+            !_unmatchedTasks.contains(unmatchedKey) &&
+            !_unmatchedCoverCache.containsKey(unmatchedKey)) {
           _unmatchedTasks.add(unmatchedKey);
           unawaited(_identifyUnmatchedGroup(group.title.trim(), unmatchedKey));
         }

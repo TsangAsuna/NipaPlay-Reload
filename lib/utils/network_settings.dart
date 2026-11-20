@@ -103,12 +103,19 @@ class NetworkSettings {
     DandanplayServerMode mode,
   ) async {
     final prefs = await SharedPreferences.getInstance();
+    final previousMode = await getDandanplayServerMode();
     await prefs.setString(_dandanplayModeKey, _modeToken(mode));
     // 注意：切换模式时保留用户填过的自定义地址，方便切回自定义时自动回填。
     // 非自定义模式下该地址不参与解析。
     // 手动切换模式会重置自动判定与故障转移的临时状态。
     await clearAutoRegion(prefs);
     await clearFailover(prefs);
+    // animeId→bangumi 映射是网关服务端属性（bangumi_detail_* 只按 ID
+    // 键控）：切服务器后旧缓存会在 6h~7d TTL 内持续返回旧服务器的
+    // 映射（错详情/错封面/错剧集列表），必须一并失效。
+    if (previousMode != mode) {
+      await _invalidateServerDerivedCaches(prefs);
+    }
     print('[网络设置] 弹弹play服务器模式已切换到: ${_modeToken(mode)}');
   }
 
@@ -197,7 +204,26 @@ class NetworkSettings {
     await prefs.setString(_dandanplayModeKey, _modeToken(mode));
     await clearAutoRegion(prefs);
     await clearFailover(prefs);
+    await _invalidateServerDerivedCaches(prefs);
     print('[网络设置] 弹弹play服务器已切换到: $normalized');
+  }
+
+  /// 服务器身份变化后的统一失效：清网关衍生的详情/日历持久化缓存 +
+  /// 递增 revision + 通知内存层（BangumiService 等注册的回调）。
+  /// detail/animeId 映射和封面归属都随服务器变化，不清就会张冠李戴。
+  static Future<void> _invalidateServerDerivedCaches(
+    SharedPreferences prefs,
+  ) async {
+    final stale = prefs.getKeys().where((k) =>
+        k.startsWith('bangumi_detail_') ||
+        k == 'dandanplay_shin_cache' ||
+        k.startsWith('media_library_image_url_'));
+    for (final key in stale) {
+      await prefs.remove(key);
+    }
+    settingsRevision++;
+    _updateMirrorHostCache(await getBangumiServer());
+    onServerConfigChanged?.call();
   }
 
   /// 把地址映射回选择模式；非官方地址视为自定义。
@@ -226,13 +252,7 @@ class NetworkSettings {
     await prefs.setString(_bangumiServerKey, normalized);
     // 换 API 地址后清旧域名图片/详情缓存，否则旧缓存仍指向旧域名一直加载失败
     if (normalized != previous) {
-      final stale = prefs.getKeys()
-          .where((k) => k.startsWith('media_library_image_url_') ||
-              k.startsWith('bangumi_detail_'))
-          .toList();
-      for (final key in stale) {
-        await prefs.remove(key);
-      }
+      await _invalidateServerDerivedCaches(prefs);
     }
     print('[网络设置] Bangumi服务器已切换到: $normalized');
   }
@@ -254,6 +274,61 @@ class NetworkSettings {
     'chii.in',
   ];
 
+  /// 服务器配置版本号：Bangumi 镜像 / 弹弹play 服务器切换、清除图片缓存
+  /// 等影响封面与详情来源的设置变化都会递增。视图层在 build 时比对，
+  /// 变化即清自己的内存缓存（见 dandanplay_remote_library_view）。
+  static int settingsRevision = 0;
+
+  /// 服务器配置变化回调：由 BangumiService 构造时注册（避免循环 import），
+  /// 切换服务器时清各自的内存缓存。
+  static void Function()? onServerConfigChanged;
+
+  /// 最近一次解析的镜像图片主机（lain.<API host>）与路径前缀缓存，
+  /// 供 getAnimeDetailsFromMemory 等同步路径做无 await 改写。
+  static String? _cachedMirrorImageHost; // null=尚未解析，''=未配置镜像
+  static String _cachedMirrorPathPrefix = '';
+
+  static void _updateMirrorHostCache(String server) {
+    if (!isCustomBangumiServer(server)) {
+      _cachedMirrorImageHost = '';
+      _cachedMirrorPathPrefix = '';
+      return;
+    }
+    try {
+      final serverUri = Uri.parse(server);
+      var pathPrefix = serverUri.path;
+      if (pathPrefix.endsWith('/')) {
+        pathPrefix = pathPrefix.substring(0, pathPrefix.length - 1);
+      }
+      _cachedMirrorImageHost = 'lain.${serverUri.host}';
+      _cachedMirrorPathPrefix = pathPrefix;
+    } catch (_) {
+      _cachedMirrorImageHost = '';
+      _cachedMirrorPathPrefix = '';
+    }
+  }
+
+  /// 同步版 Bangumi 封面改写（内存详情缓存读取路径用）：依赖最近一次
+  /// 异步解析的镜像主机缓存；冷启动尚未解析时原样返回。
+  static String rewriteBangumiImageUrlSync(String url) {
+    final host = _cachedMirrorImageHost;
+    if (host == null || host.isEmpty || url.isEmpty || !url.contains('://')) {
+      return url;
+    }
+    try {
+      final uri = Uri.parse(url);
+      final h = uri.host.toLowerCase();
+      if (h == host || !_bangumiImageHosts.contains(h)) {
+        return url;
+      }
+      return uri
+          .replace(host: host, path: '$_cachedMirrorPathPrefix${uri.path}')
+          .toString();
+    } catch (_) {
+      return url;
+    }
+  }
+
   /// 把 bangumi CDN 图片 URL 改写到自定义镜像主机。
   ///
   /// 弹弹play 网关返回的封面指向 lain.bgm.tv，不走代理就加载失败；
@@ -267,23 +342,8 @@ class NetworkSettings {
     }
     try {
       final server = await getBangumiServer();
-      if (!isCustomBangumiServer(server)) {
-        return url;
-      }
-      final serverUri = Uri.parse(server);
-      var pathPrefix = serverUri.path;
-      if (pathPrefix.endsWith('/')) {
-        pathPrefix = pathPrefix.substring(0, pathPrefix.length - 1);
-      }
-      final mirrorHost = 'lain.${serverUri.host}';
-      final uri = Uri.parse(url);
-      final host = uri.host.toLowerCase();
-      if (host == mirrorHost || !_bangumiImageHosts.contains(host)) {
-        return url;
-      }
-      return uri
-          .replace(host: mirrorHost, path: '$pathPrefix${uri.path}')
-          .toString();
+      _updateMirrorHostCache(server);
+      return rewriteBangumiImageUrlSync(url);
     } catch (e) {
       print('[网络设置] Bangumi封面URL改写失败，使用原地址: $e');
       return url;
@@ -303,13 +363,7 @@ class NetworkSettings {
     // 与 setBangumiServer 一致：离开自定义镜像时清旧域名图片/详情缓存，
     // 否则持久化的镜像封面 URL 在默认服务器下无法加载。
     if (previous != bangumiDefaultServer) {
-      final stale = prefs.getKeys()
-          .where((k) => k.startsWith('media_library_image_url_') ||
-              k.startsWith('bangumi_detail_'))
-          .toList();
-      for (final key in stale) {
-        await prefs.remove(key);
-      }
+      await _invalidateServerDerivedCaches(prefs);
     }
     print('[网络设置] Bangumi服务器已重置为默认: $bangumiDefaultServer');
   }

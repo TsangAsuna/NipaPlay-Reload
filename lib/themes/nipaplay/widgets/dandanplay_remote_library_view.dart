@@ -12,6 +12,7 @@ import 'package:nipaplay/models/shared_remote_library.dart';
 import 'package:nipaplay/providers/dandanplay_remote_provider.dart';
 import 'package:nipaplay/providers/appearance_settings_provider.dart';
 import 'package:nipaplay/services/bangumi_service.dart';
+import 'package:nipaplay/services/bangumi_api_service.dart';
 import 'package:nipaplay/themes/nipaplay/widgets/cached_network_image_widget.dart';
 import 'package:nipaplay/themes/nipaplay/widgets/horizontal_anime_card.dart';
 import 'package:nipaplay/themes/nipaplay/widgets/blur_snackbar.dart';
@@ -54,6 +55,12 @@ class _DandanplayRemoteLibraryViewState
   // future 只发一次，结果终身复用（详情网络层有内存 LRU，重复任务近乎零成本）。
   final Map<int, BangumiAnime?> _summaryCache = {};
   final Map<int, Future<BangumiAnime?>> _summaryTasks = {};
+  // 未匹配条目（animeId 空/0）的 Bangumi 镜像识别缓存：按标题键控。
+  // 弹弹play 识别不了的条目没有 animeId，无法按 ID 查询；改走镜像的
+  // searchSubjects + getSubject，识别成功用镜像封面替换弹弹play 默认图。
+  final Map<String, String> _unmatchedCoverCache = {};
+  final Map<String, String?> _unmatchedSummaryCache = {};
+  final Set<String> _unmatchedTasks = {};
   // 数据失效纪元：服务端重新匹配后 provider 会失效变化的番剧并递增；
   // 视图层检测到 epoch 变化即清内存缓存，封面/简介按新数据重新解析。
   int _lastLibraryCacheEpoch = -1;
@@ -87,6 +94,9 @@ class _DandanplayRemoteLibraryViewState
           _coverLoadingTasks.clear();
           _summaryCache.clear();
           _summaryTasks.clear();
+          _unmatchedCoverCache.clear();
+          _unmatchedSummaryCache.clear();
+          _unmatchedTasks.clear();
         }
         final isLargeScreen = NipaplayLargeScreenModeScope.isActiveOf(context);
         if (!provider.isInitialized && provider.isLoading) {
@@ -660,7 +670,80 @@ class _DandanplayRemoteLibraryViewState
       return _buildAnimeCardBody(group, provider, coverUrl, null);
     }
 
-    return _buildAnimeCardBody(group, provider, coverUrl, null);
+    // animeId 空或 0：弹弹play 服务器未匹配的条目。用 Bangumi 镜像按
+    // 标题搜索识别（searchSubjects/getSubject 走 NetworkSettings 的
+    // 自定义 Bangumi 服务器），识别成功则用镜像封面替换弹弹play 默认图，
+    // 并补一条简介。
+    final unmatchedKey = group.title.trim().toLowerCase();
+    if (unmatchedKey.isEmpty) {
+      return _buildAnimeCardBody(group, provider, coverUrl, null);
+    }
+    final cachedCover = _unmatchedCoverCache[unmatchedKey];
+    final cachedSummary = _unmatchedSummaryCache[unmatchedKey];
+    if (!_unmatchedTasks.contains(unmatchedKey)) {
+      _unmatchedTasks.add(unmatchedKey);
+      unawaited(
+        _identifyUnmatchedGroup(group.title.trim(), unmatchedKey),
+      );
+    }
+    return HorizontalAnimeCard(
+      key: ValueKey('dandan_${group.animeId ?? group.title}'),
+      title: group.title,
+      imageUrl: (cachedCover?.isNotEmpty ?? false) ? cachedCover! : coverUrl,
+      source: '弹弹play',
+      rating: null,
+      onTap: () => _openAnimeDetail(group, provider),
+      summary: cachedSummary,
+    );
+  }
+
+  /// Bangumi 镜像识别未匹配条目：按标题搜索 → 取第一个命中 → 拉详情
+  /// 拿简介与封面（封面经镜像 CDN，规则上按 subject ID 绑死，不会串图）。
+  /// 识别失败静默保留弹弹play 默认封面。
+  Future<void> _identifyUnmatchedGroup(
+    String keyword,
+    String cacheKey,
+  ) async {
+    try {
+      final search = await BangumiApiService.searchSubjects(keyword, limit: 5);
+      final List<dynamic> subjects =
+          (search['data'] as List<dynamic>?) ?? const <dynamic>[];
+      if (subjects.isEmpty) {
+        _unmatchedSummaryCache[cacheKey] = null;
+        if (mounted) setState(() {});
+        return;
+      }
+      final subjectId = (subjects.first['id'] as num?)?.toInt() ?? 0;
+      if (subjectId <= 0) {
+        _unmatchedSummaryCache[cacheKey] = null;
+        if (mounted) setState(() {});
+        return;
+      }
+      final detail = await BangumiApiService.getSubject(subjectId);
+      final images = detail['images'];
+      final String cover = (images is Map<String, dynamic>
+              ? (images['large'] ??
+                  images['common'] ??
+                  images['medium'] ??
+                  '')
+              : '')
+          .toString();
+      final summaryText = (detail['summary'] ?? '').toString();
+      _unmatchedCoverCache[cacheKey] = cover;
+      _unmatchedSummaryCache[cacheKey] =
+          summaryText.isEmpty ? null : summaryText;
+      debugPrint(
+        '[弹弹play库] 未匹配条目 "$keyword" 经 Bangumi 镜像识别为 '
+        'subject $subjectId，封面走镜像 CDN',
+      );
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      debugPrint('[弹弹play库] 未匹配条目 "$keyword" Bangumi 识别失败: $e');
+    } finally {
+      _unmatchedTasks.remove(cacheKey);
+    }
   }
 
   Widget _buildAnimeCardBody(
@@ -802,12 +885,20 @@ class _DandanplayRemoteLibraryViewState
     DandanplayRemoteProvider provider, {
     String? coverUrl,
   }) {
+    // 未匹配条目（animeId 空/0）同样可打开详情与播放：Bangumi ID 只影响
+    // 弹幕/收藏绑定，播放走 hash 流。镜像识别的封面在这里兜底注入。
+    final unmatchedCover = (group.animeId == null || group.animeId! <= 0)
+        ? _unmatchedCoverCache[group.title.trim().toLowerCase()]
+        : null;
     final resolvedCover = coverUrl ??
-        (group.animeId != null ? _coverCache[group.animeId!] : null) ??
+        (group.animeId != null && group.animeId! > 0
+            ? _coverCache[group.animeId!]
+            : null) ??
+        (unmatchedCover?.isNotEmpty == true ? unmatchedCover : null) ??
         provider.buildImageUrl(group.primaryHash ?? '');
 
     return SharedRemoteAnimeSummary(
-      animeId: group.animeId!,
+      animeId: group.animeId ?? 0,
       name: group.title,
       nameCn: group.title,
       summary: null,
@@ -907,13 +998,28 @@ class _DandanplayRemoteLibraryViewState
     DandanplayRemoteAnimeGroup group,
     DandanplayRemoteProvider provider,
   ) async {
+    // 未匹配条目（animeId 空/0，弹弹play 识别不了的视频）不再硬性拦截：
+    // 详情页元数据走 Bangumi 镜像识别（见 _identifyUnmatchedGroup），
+    // 剧集列表来自远程库本体的 shared loader，播放走 hash 流，与
+    // animeId 解耦。缺 Bangumi ID 只影响弹幕/收藏绑定，不影响播放。
     final animeId = group.animeId;
-    if (animeId == null) {
-      BlurSnackBar.show(context, '该条目缺少 Bangumi ID，无法打开详情');
-      return;
+    if (animeId == null || animeId <= 0) {
+      if (_unmatchedCoverCache.isEmpty &&
+          _unmatchedSummaryCache.isEmpty &&
+          mounted) {
+        // 首次进入先触发一次识别，让详情/卡片都能拿到镜像元数据。
+        final unmatchedKey = group.title.trim().toLowerCase();
+        if (unmatchedKey.isNotEmpty && !_unmatchedTasks.contains(unmatchedKey)) {
+          _unmatchedTasks.add(unmatchedKey);
+          unawaited(_identifyUnmatchedGroup(group.title.trim(), unmatchedKey));
+        }
+      }
     }
 
-    final coverUrl = await _getOrFetchCoverUrl(animeId, provider, group);
+    final resolvedAnimeId =
+        (animeId != null && animeId > 0) ? animeId : 0;
+    final coverUrl =
+        await _getOrFetchCoverUrl(resolvedAnimeId, provider, group);
     if (!mounted) return;
 
     final summary = _buildSharedSummary(

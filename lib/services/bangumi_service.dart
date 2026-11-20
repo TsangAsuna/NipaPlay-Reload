@@ -18,11 +18,7 @@ class BangumiService {
   static const String _detailsCacheKeyPrefix = 'bangumi_detail_';
   static const String backupAnimeDetailKeyPrefix = 'animeDetail:';
   static const String _customBackgroundKeyPrefix = 'bangumi_custom_background_';
-  static const Duration _defaultCacheDuration = Duration(hours: 3);
-  static const int _oldAnimeThreshold = 18343; // 和弹幕缓存使用相同的判断标准
-  static const Duration _oldAnimeCacheDuration = Duration(days: 7);
-  static const Duration _newAnimeCacheDuration =
-      Duration(hours: 6); // 新番缓存时间可以比弹幕长一些
+  static const Duration _defaultCacheDuration = Duration(hours: 3); // 仅供旧代码引用
   static const int _maxConcurrentRequests = 3;
 
   final Map<String, BangumiAnime> _listCache = {};
@@ -678,7 +674,9 @@ class BangumiService {
         }
       }
 
-      //debugPrint('[番剧服务] 清理了 $removedCount 条过期的番剧详情缓存');
+      if (removedCount > 0) {
+        debugPrint('[番剧服务] 清理了 $removedCount 条损坏的番剧详情缓存');
+      }
 
       // 同时清理内存缓存
       final expiredIds = <int>[];

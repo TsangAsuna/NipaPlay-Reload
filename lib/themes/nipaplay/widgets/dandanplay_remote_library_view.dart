@@ -648,7 +648,7 @@ class _DandanplayRemoteLibraryViewState
       },
       suffixActions: [
         AdaptiveMediaIconButton(
-          desktopIcon: material.Icons.photo_library_outlined,
+          desktopIcon: Icons.photo_library_outlined,
           phoneIcon: cupertino.CupertinoIcons.photo,
           tooltip: '刷新封面/简介（按镜像优先重新获取）',
           size: 17,

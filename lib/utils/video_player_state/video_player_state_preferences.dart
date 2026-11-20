@@ -950,15 +950,15 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     }
     debugPrint('[超分] 应用档位: ${_erikaUpscalerMode.name} (index=${_erikaUpscalerMode.index})');
     await player.setUpscaler(_erikaUpscalerMode);
-    // 应用后回读内核状态：requestedMode 不符 / activeBackend=off /
-    // frames 长期不增长 = 超分实际未生效，日志可直接判断。
+    // 应用后回读内核状态：activeBackend=off / frames 长期不增长 =
+    // 超分实际未生效，日志可直接判断。
     try {
       final status = await player.getUpscalerStatus();
       debugPrint(
-        '[超分] 内核回读: backend=${status.activeBackend.name}'
-        ' fallbacks=${status.fallbackCount} frames=${status.upscaledFrames}'
-        ' encodeMs=${status.lastEncodeDuration.inMilliseconds}'
-        ' gpuMs=${status.lastGpuDuration.inMilliseconds}',
+        '[超分] 内核回读: backend=${status?.activeBackend.name ?? 'unknown'}'
+        ' fallbacks=${status?.fallbackCount ?? '-'} frames=${status?.upscaledFrames ?? '-'}'
+        ' encodeMs=${status?.lastEncodeDuration.inMilliseconds ?? '-'}'
+        ' gpuMs=${status?.lastGpuDuration.inMilliseconds ?? '-'}',
       );
     } catch (_) {}
     // 超分档位决定弹幕所有权（开启→回退 Flutter 叠层；关闭→原生合成），

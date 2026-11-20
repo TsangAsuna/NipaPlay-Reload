@@ -59,6 +59,7 @@ class CachedNetworkImageWidget extends StatefulWidget {
     this.width,
     this.height,
     this.errorBuilder,
+    this.onPermanentLoadError,
     this.shouldRelease = true,
     this.fadeDuration = _kDefaultImageFadeDuration,
     this.shouldCompress = true, // 默认为true，保持原有行为

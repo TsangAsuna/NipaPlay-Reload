@@ -1,0 +1,22 @@
+name: Build iOS sideload (unsigned)
+
+# 只跑未签名 iOS IPA 的手动构建（run41：main 1.11.13 基点 + 字幕多选 +
+# 超分弹幕回退/门控修复）。壳层与功能分支时代的同名工作流一致，
+# 真正构建复用 build-ios.yml（workflow_call）。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-ios-sideload-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build unsigned iOS IPA
+    uses: ./.github/workflows/build-ios.yml
+    with:
+      upload-to-app-store: false
+    secrets: inherit

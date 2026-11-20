@@ -11,6 +11,7 @@ import 'package:nipaplay/models/bangumi_model.dart';
 import 'package:nipaplay/models/shared_remote_library.dart';
 import 'package:nipaplay/providers/dandanplay_remote_provider.dart';
 import 'package:nipaplay/providers/appearance_settings_provider.dart';
+import 'package:nipaplay/utils/network_settings.dart';
 import 'package:nipaplay/services/bangumi_service.dart';
 import 'package:nipaplay/services/bangumi_api_service.dart';
 import 'package:nipaplay/themes/nipaplay/widgets/cached_network_image_widget.dart';
@@ -856,10 +857,14 @@ class _DandanplayRemoteLibraryViewState
       final key = 'media_library_image_url_$animeId';
       final persisted = prefs.getString(key);
       if (persisted != null && persisted.isNotEmpty) {
+        // 旧版本持久化的可能是 lain.bgm.tv 源站 URL；配置镜像后按当前
+        // 配置改写（已指向镜像的 URL 原样通过）。
+        final rewritten = await NetworkSettings.rewriteBangumiImageUrl(persisted);
         debugPrint(
-          '[弹弹play封面] "$title" ($animeId) 命中持久化 URL: $persisted',
+          '[弹弹play封面] "$title" ($animeId) 命中持久化 URL: $persisted'
+          '${rewritten != persisted ? " → 镜像改写: $rewritten" : ""}',
         );
-        return persisted;
+        return rewritten;
       }
 
       final detail = await BangumiService.instance.getAnimeDetails(animeId);

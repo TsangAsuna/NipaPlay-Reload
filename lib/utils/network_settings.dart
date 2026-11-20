@@ -246,6 +246,50 @@ class NetworkSettings {
     return normalized != bangumiDefaultServer;
   }
 
+  /// bangumi CDN 源站主机：这些域名的图片国内直连经常失败
+  static const List<String> _bangumiImageHosts = [
+    'lain.bgm.tv',
+    'bgm.tv',
+    'bangumi.tv',
+    'chii.in',
+  ];
+
+  /// 把 bangumi CDN 图片 URL 改写到自定义镜像主机。
+  ///
+  /// 弹弹play 网关返回的封面指向 lain.bgm.tv，不走代理就加载失败；
+  /// bangumi-proxy-workers 部署把镜像图片放在 API 域名的 lain. 子域、
+  /// 路径与源站完全一致（API 无路径前缀时图片路径也原样），因此只换
+  /// 主机即可。仅当配置了自定义 Bangumi 服务器时改写；未配置或 URL
+  /// 已指向镜像时原样返回，解析异常也不阻断封面加载。
+  static Future<String> rewriteBangumiImageUrl(String url) async {
+    if (url.isEmpty || !url.contains('://')) {
+      return url;
+    }
+    try {
+      final server = await getBangumiServer();
+      if (!isCustomBangumiServer(server)) {
+        return url;
+      }
+      final serverUri = Uri.parse(server);
+      var pathPrefix = serverUri.path;
+      if (pathPrefix.endsWith('/')) {
+        pathPrefix = pathPrefix.substring(0, pathPrefix.length - 1);
+      }
+      final mirrorHost = 'lain.${serverUri.host}';
+      final uri = Uri.parse(url);
+      final host = uri.host.toLowerCase();
+      if (host == mirrorHost || !_bangumiImageHosts.contains(host)) {
+        return url;
+      }
+      return uri
+          .replace(host: mirrorHost, path: '$pathPrefix${uri.path}')
+          .toString();
+    } catch (e) {
+      print('[网络设置] Bangumi封面URL改写失败，使用原地址: $e');
+      return url;
+    }
+  }
+
   /// 重置弹弹play为默认（自动选择）模式
   static Future<void> resetToDefaultServer() async {
     await setDandanplayServerMode(DandanplayServerMode.auto);
@@ -254,7 +298,19 @@ class NetworkSettings {
   /// 重置Bangumi为默认服务器
   static Future<void> resetBangumiServer() async {
     final prefs = await SharedPreferences.getInstance();
+    final previous = await getBangumiServer();
     await prefs.remove(_bangumiServerKey);
+    // 与 setBangumiServer 一致：离开自定义镜像时清旧域名图片/详情缓存，
+    // 否则持久化的镜像封面 URL 在默认服务器下无法加载。
+    if (previous != bangumiDefaultServer) {
+      final stale = prefs.getKeys()
+          .where((k) => k.startsWith('media_library_image_url_') ||
+              k.startsWith('bangumi_detail_'))
+          .toList();
+      for (final key in stale) {
+        await prefs.remove(key);
+      }
+    }
     print('[网络设置] Bangumi服务器已重置为默认: $bangumiDefaultServer');
   }
 

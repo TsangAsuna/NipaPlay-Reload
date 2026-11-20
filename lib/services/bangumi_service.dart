@@ -9,6 +9,7 @@ import 'package:nipaplay/services/quarterly_review_cache.dart';
 import './dandanplay_service.dart';
 import 'package:nipaplay/services/web_remote_access_service.dart';
 import 'package:nipaplay/utils/chinese_converter.dart';
+import 'package:nipaplay/utils/network_settings.dart';
 
 class BangumiService {
   static final BangumiService instance = BangumiService._();
@@ -378,6 +379,27 @@ class BangumiService {
     }
   }
 
+  /// 弹弹play 网关详情返回的封面指向 lain.bgm.tv，国内直连经常失败；
+  /// 配置了自定义 Bangumi 镜像时把封面/背景改写到镜像主机。
+  /// 只在返回时改写，缓存与持久化仍保留源站原始 URL（换镜像/重置
+  /// 后无需清洗缓存数据，读的时候自然会按当前配置改写）。
+  Future<BangumiAnime> _withRewrittenCover(BangumiAnime anime) async {
+    if (anime.imageUrl.isEmpty && (anime.backgroundImageUrl?.isEmpty ?? true)) {
+      return anime;
+    }
+    final imageUrl = await NetworkSettings.rewriteBangumiImageUrl(anime.imageUrl);
+    final backgroundImageUrl = anime.backgroundImageUrl == null
+        ? null
+        : await NetworkSettings.rewriteBangumiImageUrl(anime.backgroundImageUrl!);
+    if (imageUrl == anime.imageUrl && backgroundImageUrl == anime.backgroundImageUrl) {
+      return anime;
+    }
+    return anime.copyWith(
+      imageUrl: imageUrl,
+      backgroundImageUrl: backgroundImageUrl,
+    );
+  }
+
   Future<BangumiAnime> getAnimeDetails(int animeId,
       {bool forceRefresh = false}) async {
     final key = (animeId, forceRefresh);
@@ -409,7 +431,7 @@ class BangumiService {
               diskCachedDetail.language == expectedLanguage)) {
         if (!forceRefresh && (diskCachedDetail.tags?.isEmpty ?? true))
           _refreshMissingTags(animeId);
-        return diskCachedDetail;
+        return _withRewrittenCover(diskCachedDetail);
       }
     }
 
@@ -512,9 +534,9 @@ class BangumiService {
           anime = await _mergeCustomBackground(anime);
 
           if (!identical(_pendingDetailEdits[animeId], editToken)) {
-            return _detailsCache[animeId] ??
+            return _withRewrittenCover(_detailsCache[animeId] ??
                 await _loadDetailFromCache(animeId, allowExpired: true) ??
-                anime;
+                anime);
           }
           // 更新内存缓存
           _rememberDetail(animeId, anime, DateTime.now());
@@ -523,10 +545,10 @@ class BangumiService {
 
           // 异步保存到磁盘缓存
           _saveDetailToCache(animeId, anime).then((_) {
-            //debugPrint('[番剧服务] 番剧 $animeId 详情已异步保存到磁盘缓存');
+            //debugPrint('[番剧 $animeId] 详情已异步保存到磁盘缓存');
           });
 
-          return anime;
+          return _withRewrittenCover(anime);
         } else {
           //debugPrint('[番剧服务] 详情API请求成功但响应格式无效: ${decodedResponse['errorMessage']}');
           throw Exception(
@@ -541,7 +563,9 @@ class BangumiService {
       }
     } catch (e) {
       // A failed refresh must not destroy usable cached content.
-      if (diskCachedDetail != null) return diskCachedDetail;
+      if (diskCachedDetail != null) {
+        return _withRewrittenCover(diskCachedDetail);
+      }
       rethrow;
     } finally {
       if (identical(_pendingDetailEdits[animeId], editToken))

@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:nipaplay/models/dandanplay_remote_model.dart';
 import 'package:nipaplay/services/dandanplay_remote_service.dart';
@@ -197,7 +199,12 @@ class DandanplayRemoteProvider extends ChangeNotifier {
     // 按 animeId 增量重建：内容没变的分组直接复用旧 group 对象——
     // 每次全量 refresh 都 new 一批新对象会让"排在后面的番剧"跟着
     // 重新加载（数据没变但对象换了，卡片层全部失效重建）。
+    // 服务端重新匹配（PC 端更新番剧内容）会改变 animeId→番剧的对应
+    // 关系：标题随新数据走，但按 animeId 持久化的封面 URL 还是旧匹配
+    // 时代的 → 封面张冠李戴。检测到"已有分组内容变化"时，失效该
+    // animeId 的持久化封面并递增 epoch，让视图层同步清内存缓存。
     final List<DandanplayRemoteAnimeGroup> groups = [];
+    final Set<int?> changedAnimeIds = {};
     grouped.forEach((animeId, items) {
       items.sort((a, b) {
         final aTime =
@@ -208,6 +215,9 @@ class DandanplayRemoteProvider extends ChangeNotifier {
       });
       final latest = items.last;
       final reused = _reuseGroupIfUnchanged(animeId, latest, items);
+      if (reused == null && _groupById(animeId) != null) {
+        changedAnimeIds.add(animeId);
+      }
       groups.add(
         reused ??
             DandanplayRemoteAnimeGroup(
@@ -225,8 +235,46 @@ class DandanplayRemoteProvider extends ChangeNotifier {
       return bTime.compareTo(aTime);
     });
 
+    // 集合结构变化（消失的 animeId）也失效：其持久化封面不再可靠。
+    final previousIds = _animeGroups.map((g) => g.animeId).toSet();
+    final currentIds = groups.map((g) => g.animeId).toSet();
+    changedAnimeIds.addAll(previousIds.difference(currentIds));
+
     _animeGroups = groups;
+    if (changedAnimeIds.isNotEmpty) {
+      _dataInvalidationEpoch++;
+      unawaited(_clearPersistedCovers(changedAnimeIds));
+      debugPrint(
+        '[弹弹play库] 检测到 ${changedAnimeIds.length} 个番剧条目内容变化，'
+        '失效其持久化封面缓存 (epoch=$_dataInvalidationEpoch)',
+      );
+    }
     notifyListeners();
+  }
+
+  Future<void> _clearPersistedCovers(Set<int?> animeIds) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final animeId in animeIds) {
+        if (animeId == null) continue;
+        await prefs.remove('media_library_image_url_$animeId');
+      }
+    } catch (e) {
+      debugPrint('[弹弹play库] 清理持久化封面失败: $e');
+    }
+  }
+
+  /// 视图层据此清自己的内存缓存（见 dandanplay_remote_library_view）。
+  int _dataInvalidationEpoch = 0;
+  int get libraryCacheEpoch => _dataInvalidationEpoch;
+
+  DandanplayRemoteAnimeGroup? _groupById(int? animeId) {
+    for (final group in _animeGroups) {
+      if (group.animeId == animeId) {
+        return group;
+      }
+    }
+    return null;
   }
 
   DandanplayRemoteAnimeGroup? _reuseGroupIfUnchanged(

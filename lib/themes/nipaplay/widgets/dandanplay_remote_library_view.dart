@@ -54,6 +54,9 @@ class _DandanplayRemoteLibraryViewState
   // future 只发一次，结果终身复用（详情网络层有内存 LRU，重复任务近乎零成本）。
   final Map<int, BangumiAnime?> _summaryCache = {};
   final Map<int, Future<BangumiAnime?>> _summaryTasks = {};
+  // 数据失效纪元：服务端重新匹配后 provider 会失效变化的番剧并递增；
+  // 视图层检测到 epoch 变化即清内存缓存，封面/简介按新数据重新解析。
+  int _lastLibraryCacheEpoch = -1;
 
   @override
   void initState() {
@@ -76,6 +79,15 @@ class _DandanplayRemoteLibraryViewState
   Widget build(BuildContext context) {
     return Consumer<DandanplayRemoteProvider>(
       builder: (context, provider, child) {
+        // 数据失效纪元变化（服务端重新匹配等）→ 清内存封面/简介缓存，
+        // 卡片按新数据重新解析；持久化层由 provider 侧负责失效。
+        if (provider.libraryCacheEpoch != _lastLibraryCacheEpoch) {
+          _lastLibraryCacheEpoch = provider.libraryCacheEpoch;
+          _coverCache.clear();
+          _coverLoadingTasks.clear();
+          _summaryCache.clear();
+          _summaryTasks.clear();
+        }
         final isLargeScreen = NipaplayLargeScreenModeScope.isActiveOf(context);
         if (!provider.isInitialized && provider.isLoading) {
           return const Center(child: AdaptiveMediaActivityIndicator());
@@ -684,16 +696,16 @@ class _DandanplayRemoteLibraryViewState
     }
 
     _coverCache.putIfAbsent(animeId, () => fallback);
-    _ensureCoverLoad(animeId);
+    _ensureCoverLoad(animeId, title: group.title);
     return _coverCache[animeId] ?? fallback;
   }
 
-  void _ensureCoverLoad(int animeId) {
+  void _ensureCoverLoad(int animeId, {String? title}) {
     if (_coverLoadingTasks.containsKey(animeId)) {
       return;
     }
 
-    final future = _loadCoverFromSources(animeId).then((url) {
+    final future = _loadCoverFromSources(animeId, title: title).then((url) {
       if ((url?.isNotEmpty ?? false) && mounted) {
         setState(() {
           _coverCache[animeId] = url;
@@ -730,7 +742,7 @@ class _DandanplayRemoteLibraryViewState
         return result;
       }
     } else {
-      _ensureCoverLoad(animeId);
+      _ensureCoverLoad(animeId, title: group.title);
       final newly = await _coverLoadingTasks[animeId];
       if (newly != null && newly.isNotEmpty) {
         return newly;
@@ -750,7 +762,7 @@ class _DandanplayRemoteLibraryViewState
     return fallback;
   }
 
-  Future<String?> _loadCoverFromSources(int animeId) async {
+  Future<String?> _loadCoverFromSources(int animeId, {String? title}) async {
     // animeId<=0（未匹配/自有条目）没有 Bangumi 元数据，跳过详情查询，
     // 直接走弹弹play 图片 hash 回退（自定义镜像对 ID 0 报参数错误）。
     if (animeId <= 0) {
@@ -761,6 +773,9 @@ class _DandanplayRemoteLibraryViewState
       final key = 'media_library_image_url_$animeId';
       final persisted = prefs.getString(key);
       if (persisted != null && persisted.isNotEmpty) {
+        debugPrint(
+          '[弹弹play封面] "$title" ($animeId) 命中持久化 URL: $persisted',
+        );
         return persisted;
       }
 
@@ -768,8 +783,14 @@ class _DandanplayRemoteLibraryViewState
       final url = detail.imageUrl;
       if (url.isNotEmpty) {
         await prefs.setString(key, url);
+        debugPrint(
+          '[弹弹play封面] "$title" ($animeId) 取得 Bangumi 封面: $url',
+        );
         return url;
       }
+      debugPrint(
+        '[弹弹play封面] "$title" ($animeId) Bangumi 详情无封面图，用弹弹play 图片回退',
+      );
     } catch (e) {
       debugPrint('加载番剧封面异常($animeId): $e');
     }

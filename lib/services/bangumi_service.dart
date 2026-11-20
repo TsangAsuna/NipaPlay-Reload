@@ -463,15 +463,20 @@ class BangumiService {
         await ChineseConverter.isTraditionalChineseEnvironment(null);
     final expectedLanguage = isTraditional ? 'zh_Hant' : 'zh';
 
-    final diskCachedDetail = _detailsCache[animeId] ??
-        await _loadDetailFromCache(animeId, allowExpired: true);
+    // forceRefresh 必须绕开缓存直接走网络：旧的"先读缓存再判断"结构
+    // 会让 forceRefresh 在语言匹配时命中缓存直接返回——用户下拉刷新/
+    // 重新识别形同虚设。负 ID（自定义媒体）无网络可取，仍走缓存。
+    BangumiAnime? diskCachedDetail;
+    if (!forceRefresh || animeId < 0) {
+      diskCachedDetail = _detailsCache[animeId] ??
+          await _loadDetailFromCache(animeId, allowExpired: true);
+    }
     if (diskCachedDetail != null) {
       final cacheTime =
           _detailsCacheTime[animeId] ?? DateTime.fromMillisecondsSinceEpoch(0);
       _rememberDetail(animeId, diskCachedDetail, cacheTime);
       if (animeId < 0 ||
           (!forceRefresh &&
-              _isCacheValid(animeId, cacheTime) &&
               diskCachedDetail.language == expectedLanguage)) {
         if (!forceRefresh && (diskCachedDetail.tags?.isEmpty ?? true))
           _refreshMissingTags(animeId);
@@ -678,24 +683,8 @@ class BangumiService {
         debugPrint('[番剧服务] 清理了 $removedCount 条损坏的番剧详情缓存');
       }
 
-      // 同时清理内存缓存
-      final expiredIds = <int>[];
-      _detailsCacheTime.forEach((id, time) {
-        // 跳过自定义媒体信息（animeId为负数）
-        if (id < 0) {
-          return;
-        }
-        if (!_isCacheValid(id, time)) {
-          expiredIds.add(id);
-        }
-      });
-
-      for (var id in expiredIds) {
-        _detailsCache.remove(id);
-        _detailsCacheTime.remove(id);
-      }
-
-      //debugPrint('[番剧服务] 清理了 ${expiredIds.length} 条过期的内存缓存');
+      // 内存层仅靠 _rememberDetail 的 LRU 上限淘汰，不再按时间清理
+      // （一劳永逸模型：详情一旦取到就长期复用）。
     } catch (e) {
       //debugPrint('[番剧服务] 清理过期番剧详情缓存失败: $e');
     }

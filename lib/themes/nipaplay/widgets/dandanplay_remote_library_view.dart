@@ -718,45 +718,40 @@ class _DandanplayRemoteLibraryViewState
       final task = Future.delayed(stagger, () {
             return BangumiService.instance.getAnimeDetails(animeId);
           })
-          .then<BangumiAnime>((anime) {
+          // Future<BangumiAnime?>：一律用可空类型，失败路径返回 null。
+          // 绝不用"空 BangumiAnime"当哨兵——空对象一旦被写进 _summaryCache
+          // 就变成永久空白简介（且 containsKey 命中后不再重试）。
+          // 成功/失败由 null 判断，不依赖 then/catchError 的链式异常穿透语义。
+          .then<BangumiAnime?>((anime) {
             _summaryCache[animeId] = anime;
             if (mounted) {
               setState(() {});
             }
             return anime;
           })
+          // Future<BangumiAnime?>：一律用可空类型，失败路径返回 null。
+          // 绝不用"空 BangumiAnime"当哨兵——空对象一旦被写进 _summaryCache
+          // 就变成永久空白简介（且 containsKey 命中后不再重试）。
+          // 成功/失败由 null 判断，不依赖 then/catchError 的链式异常穿透语义。
+          .then<BangumiAnime?>((anime) {
+            // anime == null 说明失败：不写缓存，保留下次重试的机会。
+            if (anime != null) {
+              _summaryCache[animeId] = anime;
+              if (mounted) {
+                setState(() {});
+              }
+            }
+            return anime;
+          })
           .catchError((Object error) {
-            // 记录后吞掉：失败不写缓存保留重试语义，task 以 null 结束，
-            // whenComplete 仍会清理任务表。
             debugPrint('获取番剧简介失败($animeId): $error');
-            return BangumiAnime(
-              id: animeId,
-              name: '',
-              nameCn: '',
-              imageUrl: '',
-              summary: null,
-              bangumiUrl: '',
-              airDate: DateTime.now().toIso8601String(),
-              airWeekday: null,
-              isOnAir: false,
-              totalEpisodes: 0,
-              rating: 0.0,
-              ratingDetails: {},
-              tags: [],
-              metadata: [],
-              typeDescription: '',
-              isNSFW: false,
-              platform: '',
-              isFavorited: false,
-              titles: [],
-              searchKeyword: '',
-              language: '',
-              episodeList: [],
-            );
+            return null;
           });
       _summaryTasks[animeId] = task;
       unawaited(
         task.whenComplete(() {
+          // 失败已不写缓存，任务表必须同样清掉，否则"在跑"状态会永久
+          // 挡住重试（_summaryTasks.containsKey 分支）。
           _summaryTasks.remove(animeId);
         }),
       );
@@ -956,7 +951,14 @@ class _DandanplayRemoteLibraryViewState
     // 快照失效纪元：epoch 清缓存后旧在途任务若把旧 URL 写回，
     // 会盖掉新纪元的数据（最后写者胜）。回写前比对，不一致即丢弃。
     final epochAtStart = _lastLibraryCacheEpoch;
-    final future = _loadCoverFromSources(animeId, title: title).then((url) {
+
+    // 与简介请求同款错峰：点"刷新封面"会让整库条目同刻调 _ensureCoverLoad，
+    // 50+ 个 getAnimeDetails 齐发必然再撞 429。按 animeId 摊开到 0..~1.3s。
+    // 首屏本来就是滚动触发的，错峰只会让这批请求更均匀。
+    final stagger = Duration(milliseconds: (animeId % 12) * 120);
+    final future = Future<void>.delayed(stagger)
+        .then((_) => _loadCoverFromSources(animeId, title: title))
+        .then((url) {
       if (_lastLibraryCacheEpoch != epochAtStart) {
         return url;
       }

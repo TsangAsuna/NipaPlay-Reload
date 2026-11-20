@@ -818,6 +818,7 @@ class BangumiService {
             getAnimeDetails(anime.id).catchError((e) {
               // 忽略预加载错误
               //debugPrint('[番剧服务] 预加载番剧 ${anime.id} 详情失败: $e');
+              throw e;
             });
 
             // 短暂延迟以避免并发请求过多

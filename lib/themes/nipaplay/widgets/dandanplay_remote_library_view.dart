@@ -670,7 +670,7 @@ class _DandanplayRemoteLibraryViewState
       final task = Future.delayed(stagger, () {
             return BangumiService.instance.getAnimeDetails(animeId);
           })
-          .then((anime) {
+          .then<BangumiAnime>((anime) {
             _summaryCache[animeId] = anime;
             if (mounted) {
               setState(() {});
@@ -678,8 +678,33 @@ class _DandanplayRemoteLibraryViewState
             return anime;
           })
           .catchError((Object error) {
+            // 记录后吞掉：失败不写缓存保留重试语义，task 以 null 结束，
+            // whenComplete 仍会清理任务表。
             debugPrint('获取番剧简介失败($animeId): $error');
-            return null;
+            return BangumiAnime(
+              id: animeId,
+              name: '',
+              nameCn: '',
+              imageUrl: '',
+              summary: null,
+              bangumiUrl: '',
+              airDate: DateTime.now().toIso8601String(),
+              airWeekday: null,
+              isOnAir: false,
+              totalEpisodes: 0,
+              rating: 0.0,
+              ratingDetails: {},
+              tags: [],
+              metadata: [],
+              typeDescription: '',
+              isNSFW: false,
+              platform: '',
+              isFavorited: false,
+              titles: [],
+              searchKeyword: '',
+              language: '',
+              episodeList: [],
+            );
           });
       _summaryTasks[animeId] = task;
       unawaited(

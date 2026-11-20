@@ -59,9 +59,11 @@ void main() {
   test('failed refresh keeps stale details in memory and persistent storage',
       () async {
     final cached = stored(anime(2), timestamp: 0);
-    SharedPreferences.setMockInitialValues({'bangumi_detail_2': cached});
+    // 服务器模式切换会失效 bangumi_detail_*（见 NetworkSettings），
+    // 必须先切模式再注入测试缓存。
     await NetworkSettings.setDandanplayServerMode(
         DandanplayServerMode.hongKong);
+    SharedPreferences.setMockInitialValues({'bangumi_detail_2': cached});
     final service = BangumiService.forTesting(
         MockClient((_) async => throw DandanplayLoginRequired()));
     expect((await service.getAnimeDetails(2)).name, 'Cached');
@@ -73,10 +75,10 @@ void main() {
 
   test('concurrent refreshes share a request and cannot overwrite a user edit',
       () async {
-    SharedPreferences.setMockInitialValues(
-        {'bangumi_detail_3': stored(anime(3))});
     await NetworkSettings.setDandanplayServerMode(
         DandanplayServerMode.hongKong);
+    SharedPreferences.setMockInitialValues(
+        {'bangumi_detail_3': stored(anime(3))});
     final entered = Completer<void>();
     final release = Completer<void>();
     var requests = 0;

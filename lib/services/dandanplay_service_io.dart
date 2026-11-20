@@ -2007,6 +2007,7 @@ class DandanplayService {
     required List<int> episodeIdList,
     bool addToFavorite = false,
     int rating = 0,
+    int? animeId,
   }) async {
     if (!_isLoggedIn || _token == null) {
       throw Exception('需要登录才能提交播放历史');
@@ -2059,7 +2060,15 @@ class DandanplayService {
         final data = json.decode(response.body);
         if (data['success'] == true) {
           debugPrint('[弹弹play服务] 播放历史提交成功');
-          _clearBangumiDetailsCache();
+          // 播放历史只改变这一部番的观看状态：定点清该 animeId 的详情
+          // 缓存。全量清会让"播放→切媒体库/详情页"每次都重拉全部番剧
+          // 详情（实测 11:20:13 提交历史 → 11:20:31 回详情页重新拉
+          // /api/v2/bangumi/20240，简介百分百重载）。
+          if (animeId != null) {
+            _clearBangumiDetailsCache(animeId);
+          } else {
+            _clearBangumiDetailsCache();
+          }
           // 提交播放历史后观看状态缓存作废，下次详情页拿到真实状态。
           _invalidateWatchStateCache();
           return data;

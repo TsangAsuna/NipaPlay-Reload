@@ -81,17 +81,14 @@ class BangumiService {
     NetworkSettings.onServerConfigChanged = invalidateServerCaches;
   }
 
-  // 根据番剧ID获取缓存时间
-  Duration _getCacheDurationForAnime(int animeId) {
-    return animeId < _oldAnimeThreshold
-        ? _oldAnimeCacheDuration
-        : _newAnimeCacheDuration;
-  }
-
-  // 检查缓存是否有效
+  // 检查缓存是否有效。
+  //
+  // 封面/简介是元数据：首次获取成功后一劳永逸（用户明确要求），不随
+  // 时间过期。刷新只剩两条路径——forceRefresh（下拉刷新/重新识别）和
+  // 语言不匹配（繁简环境切换）。获取失败时调用方会走失败重拉。
+  // TTL 常量保留仅作历史参考，不再参与判定。
   bool _isCacheValid(int animeId, DateTime cacheTime) {
-    final cacheDuration = _getCacheDurationForAnime(animeId);
-    return DateTime.now().difference(cacheTime) < cacheDuration;
+    return true;
   }
 
   Future<void> initialize() async {
@@ -591,8 +588,7 @@ class BangumiService {
           }
           // 更新内存缓存
           _rememberDetail(animeId, anime, DateTime.now());
-          final cacheDuration = _getCacheDurationForAnime(animeId);
-          //debugPrint('[番剧服务] 成功从API获取番剧 $animeId 的详情并缓存到内存 (缓存时间: ${cacheDuration.inHours}小时)');
+          // 元数据一劳永逸：缓存无 TTL，直接落盘持久保存。
 
           // 异步保存到磁盘缓存
           _saveDetailToCache(animeId, anime).then((_) {
@@ -638,22 +634,26 @@ class BangumiService {
     return cleanExpiredDetailCache();
   }
 
-  // 清理过期的番剧详情缓存
+  // 清理过期的番剧详情缓存。
+  //
+  // 元数据一劳永逸模型（用户要求）：详情缓存不再按时间过期，本方法
+  // 保留只做两件事——丢弃损坏条目（JSON 解析失败）、保留带自定义背景
+  // 的条目。cleanExpiredDetailCacheOnce 的调用点（详情页）保留，行为
+  // 从"定时清理"退化为"轻量健康检查"，多数会话将一个键都不清。
   Future<void> cleanExpiredDetailCache() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final keys = prefs.getKeys();
       final detailsKeys =
           keys.where((key) => key.startsWith(_detailsCacheKeyPrefix)).toList();
-      final now = DateTime.now().millisecondsSinceEpoch;
       int removedCount = 0;
 
       for (var key in detailsKeys) {
         try {
           final String? cachedString = prefs.getString(key);
           if (cachedString != null) {
+            // 只丢弃解析损坏的条目；时间戳不再参与判定。
             final data = json.decode(cachedString);
-            final timestamp = data['timestamp'] as int;
             final animeId =
                 int.parse(key.substring(_detailsCacheKeyPrefix.length));
 
@@ -662,19 +662,14 @@ class BangumiService {
               continue;
             }
 
-            final cacheDuration = _getCacheDurationForAnime(animeId);
-
-            // 检查是否过期
-            if (now - timestamp > cacheDuration.inMilliseconds) {
-              final raw = data['animeDetail'];
-              final anime = raw is Map
-                  ? BangumiAnime.fromJson(Map<String, dynamic>.from(raw))
-                  : null;
-              await _persistCustomBackgroundIfPresent(anime);
-              if (anime?.backgroundImageUrl?.trim().isNotEmpty != true) {
-                await prefs.remove(key);
-                removedCount++;
-              }
+            final raw = data['animeDetail'];
+            final anime = raw is Map
+                ? BangumiAnime.fromJson(Map<String, dynamic>.from(raw))
+                : null;
+            await _persistCustomBackgroundIfPresent(anime);
+            if (anime == null) {
+              await prefs.remove(key);
+              removedCount++;
             }
           }
         } catch (e) {
@@ -722,8 +717,7 @@ class BangumiService {
 
       final cacheKey = '$_detailsCacheKeyPrefix$animeId';
       await prefs.setString(cacheKey, json.encode(data));
-      final cacheDuration = _getCacheDurationForAnime(animeId);
-      ////debugPrint('[番剧服务] 番剧 $animeId 详情已保存到磁盘缓存 (缓存时间: ${cacheDuration.inHours}小时)');
+      ////debugPrint('[番剧服务] 番剧 $animeId 详情已保存到磁盘缓存（永久，无TTL）');
     } catch (e) {
       //debugPrint('[番剧服务] 保存番剧详情到磁盘缓存失败: $e');
     }
@@ -745,16 +739,13 @@ class BangumiService {
       if (cachedString != null) {
         final data = json.decode(cachedString);
         final timestamp = data['timestamp'] as int;
-        final now = DateTime.now().millisecondsSinceEpoch;
         final cacheTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
 
         //debugPrint('[番剧服务] 找到番剧 $animeId 的磁盘缓存，缓存时间: $cacheTime');
 
-        // 使用动态缓存时间
-        final cacheDuration = _getCacheDurationForAnime(animeId);
-
-        // 检查是否过期
-        bool isExpired = now - timestamp > cacheDuration.inMilliseconds;
+        // 元数据一劳永逸：磁盘缓存不按时间过期（allowExpired 参数保留
+        // 兼容旧调用点，语义上现在永远允许）。刷新只走 forceRefresh /
+        // 语言不匹配；失败重拉由调用方在网络失败时触发。
 
         // 对于自定义媒体信息（animeId为负数），即使缓存过期也返回
         final Map<String, dynamic> animeData =
@@ -765,17 +756,11 @@ class BangumiService {
             .catchError((Object _) {}));
         await _persistCustomBackground(animeDetail);
 
-        if (allowExpired || !isExpired || animeId < 0) {
-          // 加载到内存缓存
-          _rememberDetail(animeId, animeDetail,
-              DateTime.fromMillisecondsSinceEpoch(timestamp));
+        // 加载到内存缓存
+        _rememberDetail(animeId, animeDetail, cacheTime);
 
-          //debugPrint('[番剧服务] 从磁盘缓存成功加载番剧 $animeId 的详情 (缓存时间: ${cacheDuration.inHours}小时)');
-          return animeDetail;
-        } else if (animeDetail.backgroundImageUrl?.trim().isNotEmpty != true) {
-          //debugPrint('[番剧服务] 番剧 $animeId 的磁盘缓存已过期，将从网络重新获取');
-          await prefs.remove(cacheKey);
-        }
+        //debugPrint('[番剧服务] 从磁盘缓存成功加载番剧 $animeId 的详情 (缓存时间: $cacheTime)');
+        return animeDetail;
       }
       return null;
     } catch (e) {
@@ -848,13 +833,9 @@ class BangumiService {
       final String? cachedString = prefs.getString(cacheKey);
 
       if (cachedString != null) {
+        // 元数据一劳永逸：磁盘缓存存在即视为有缓存（无 TTL）。
         final data = json.decode(cachedString);
-        final timestamp = data['timestamp'] as int;
-        final now = DateTime.now().millisecondsSinceEpoch;
-        final cacheDuration = _getCacheDurationForAnime(animeId);
-
-        // 检查是否过期
-        if (now - timestamp <= cacheDuration.inMilliseconds) {
+        if (data['animeDetail'] != null) {
           return true;
         }
       }

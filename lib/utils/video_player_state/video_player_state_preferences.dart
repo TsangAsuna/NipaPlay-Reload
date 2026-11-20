@@ -942,9 +942,25 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
 
   Future<void> applyErikaUpscalerModeToCurrentPlayer() async {
     if (_isDisposed || !player.supportsUpscaler) {
+      debugPrint(
+        '[超分] 跳过应用: disposed=$_isDisposed supportsUpscaler=${player.supportsUpscaler}'
+        ' kernel=${player.getPlayerKernelName()}',
+      );
       return;
     }
+    debugPrint('[超分] 应用档位: ${_erikaUpscalerMode.name} (index=${_erikaUpscalerMode.index})');
     await player.setUpscaler(_erikaUpscalerMode);
+    // 应用后回读内核状态：requestedMode 不符 / activeBackend=off /
+    // frames 长期不增长 = 超分实际未生效，日志可直接判断。
+    try {
+      final status = await player.getUpscalerStatus();
+      debugPrint(
+        '[超分] 内核回读: backend=${status.activeBackend.name}'
+        ' fallbacks=${status.fallbackCount} frames=${status.upscaledFrames}'
+        ' encodeMs=${status.lastEncodeDuration.inMilliseconds}'
+        ' gpuMs=${status.lastGpuDuration.inMilliseconds}',
+      );
+    } catch (_) {}
     // 超分档位决定弹幕所有权（开启→回退 Flutter 叠层；关闭→原生合成），
     // 这里触发一次调和：Flutter 叠层重新喂当前弹幕列表，原生路径重推配置。
     try {

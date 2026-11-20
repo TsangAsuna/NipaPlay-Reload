@@ -66,6 +66,8 @@ class _DandanplayRemoteLibraryViewState
   // 视图层检测到 epoch 变化即清内存缓存，封面/简介按新数据重新解析。
   int _lastLibraryCacheEpoch = -1;
   int _lastSettingsRevision = -1;
+  // 封面详情获取失败退避表：失败后 5 分钟内不再重试该条目（防 429 风暴）。
+  final Map<int, DateTime> _coverDetailFailures = {};
 
   @override
   void initState() {
@@ -491,6 +493,11 @@ class _DandanplayRemoteLibraryViewState
         onSubmitted: _commitSearchQuery,
         actions: [
           CupertinoMediaSearchToolbarAction(
+            label: '刷新封面',
+            icon: cupertino.CupertinoIcons.photo,
+            onPressed: () => _refreshAllCovers(),
+          ),
+          CupertinoMediaSearchToolbarAction(
             label: provider.isLoading ? '刷新中' : '刷新',
             icon: cupertino.CupertinoIcons.refresh,
             loading: provider.isLoading,
@@ -639,7 +646,48 @@ class _DandanplayRemoteLibraryViewState
         _searchDebounce?.cancel();
         if (mounted) setState(() => _searchQuery = '');
       },
+      suffixActions: [
+        AdaptiveMediaIconButton(
+          desktopIcon: material.Icons.photo_library_outlined,
+          phoneIcon: cupertino.CupertinoIcons.photo,
+          tooltip: '刷新封面/简介（按镜像优先重新获取）',
+          size: 17,
+          onPressed: _refreshAllCovers,
+        ),
+      ],
     );
+  }
+
+  /// 手动刷新封面/简介：清内存缓存 + 失败退避 + 持久化封面 URL，
+  /// 全库条目按当前多源优先级（bangumi 镜像优先）重新解析。
+  /// 唯一的用户可控网络入口——其余场景均为"取一次一劳永逸 + 失败重拉"。
+  Future<void> _refreshAllCovers() async {
+    setState(() {
+      _coverCache.clear();
+      _coverLoadingTasks.clear();
+      _summaryCache.clear();
+      _summaryTasks.clear();
+      _unmatchedCoverCache.clear();
+      _unmatchedSummaryCache.clear();
+      _unmatchedTasks.clear();
+      _coverDetailFailures.clear();
+    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs
+          .getKeys()
+          .where((k) => k.startsWith('media_library_image_url_'))
+          .toList();
+      for (final key in keys) {
+        await prefs.remove(key);
+      }
+    } catch (e) {
+      debugPrint('[弹弹play库] 清理持久化封面失败: $e');
+    }
+    if (mounted) {
+      setState(() {});
+      BlurSnackBar.show(context, '已清空封面/简介缓存，正在按镜像优先重新获取');
+    }
   }
 
   Widget _buildAnimeCard(
@@ -984,35 +1032,69 @@ class _DandanplayRemoteLibraryViewState
     if (animeId <= 0) {
       return null;
     }
+    // 详情请求失败时的会话级退避：网络抖动期间不反复打网关。
+    final failedAt = _coverDetailFailures[animeId];
+    if (failedAt != null &&
+        DateTime.now().difference(failedAt) < const Duration(minutes: 5)) {
+      // 退避期内回退持久化 URL（多源兜底），不整条失败。
+      final prefs = await SharedPreferences.getInstance();
+      final persisted =
+          prefs.getString('media_library_image_url_$animeId');
+      if (persisted?.isNotEmpty ?? false) {
+        return NetworkSettings.rewriteBangumiImageUrl(persisted!);
+      }
+      return null;
+    }
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = 'media_library_image_url_$animeId';
-      final persisted = prefs.getString(key);
-      if (persisted != null && persisted.isNotEmpty) {
-        // 旧版本持久化的可能是 lain.bgm.tv 源站 URL；配置镜像后按当前
-        // 配置改写（已指向镜像的 URL 原样通过）。
-        final rewritten = await NetworkSettings.rewriteBangumiImageUrl(persisted);
+
+      // 多源优先级：Bangumi 详情（经镜像改写）优先于弹弹play CDN。
+      // 弹弹详情的 imageUrl 常指向 assets.anixplayer.net（弹弹自家 CDN，
+      // 部分条目如 NSFW 可达性差），镜像按 subject ID 供图不会串图；
+      // 持久化 URL 是旧次序（弹弹优先）时代存的，降级为兜底——仅当
+      // bangumi 详情无封面或获取失败时使用。
+      final detail = await BangumiService.instance.getAnimeDetails(animeId);
+      final bangumiUrl = detail.imageUrl;
+      if (bangumiUrl.isNotEmpty) {
+        final rewritten =
+            await NetworkSettings.rewriteBangumiImageUrl(bangumiUrl);
+        await prefs.setString(key, bangumiUrl);
+        _coverDetailFailures.remove(animeId);
         debugPrint(
-          '[弹弹play封面] "$title" ($animeId) 命中持久化 URL: $persisted'
-          '${rewritten != persisted ? " → 镜像改写: $rewritten" : ""}',
+          '[弹弹play封面] "$title" ($animeId) Bangumi 多源封面: $bangumiUrl'
+          '${rewritten != bangumiUrl ? " → 镜像改写: $rewritten" : ""}',
         );
         return rewritten;
       }
 
-      final detail = await BangumiService.instance.getAnimeDetails(animeId);
-      final url = detail.imageUrl;
-      if (url.isNotEmpty) {
-        await prefs.setString(key, url);
+      // Bangumi 无封面：持久化（含弹弹 anixplayer URL）兜底。
+      final persisted = prefs.getString(key);
+      if (persisted != null && persisted.isNotEmpty) {
+        final rewritten = await NetworkSettings.rewriteBangumiImageUrl(persisted);
         debugPrint(
-          '[弹弹play封面] "$title" ($animeId) 取得 Bangumi 封面: $url',
+          '[弹弹play封面] "$title" ($animeId) Bangumi 无封面，用持久化兜底: '
+          '$persisted${rewritten != persisted ? " → 镜像改写: $rewritten" : ""}',
         );
-        return url;
+        return rewritten;
       }
       debugPrint(
-        '[弹弹play封面] "$title" ($animeId) Bangumi 详情无封面图，用弹弹play 图片回退',
+        '[弹弹play封面] "$title" ($animeId) 多源均无封面，用弹弹play 图片回退',
       );
     } catch (e) {
+      // 详情获取失败：记录退避，本会话 5 分钟内不再重试该条目；
+      // 缓存层本身一劳永逸，下次会话/退避过后自动重拉（失败重拉模型）。
+      _coverDetailFailures[animeId] = DateTime.now();
       debugPrint('加载番剧封面异常($animeId): $e');
+      // 失败时持久化 URL 兜底。
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final persisted =
+            prefs.getString('media_library_image_url_$animeId');
+        if (persisted?.isNotEmpty ?? false) {
+          return NetworkSettings.rewriteBangumiImageUrl(persisted!);
+        }
+      } catch (_) {}
     }
     return null;
   }

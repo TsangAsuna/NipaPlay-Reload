@@ -613,6 +613,7 @@ extension VideoPlayerStateStreaming on VideoPlayerState {
         episodeIdList: [_episodeId!],
         addToFavorite: false,
         rating: 0,
+        animeId: _animeId,
       );
 
       if (result['success'] == true) {

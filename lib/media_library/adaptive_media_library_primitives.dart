@@ -483,6 +483,7 @@ class AdaptiveMediaSearchField extends material.StatelessWidget {
     required this.onChanged,
     this.onSubmitted,
     this.onClear,
+    this.suffixActions = const <material.Widget>[],
   });
 
   final material.TextEditingController controller;
@@ -491,6 +492,8 @@ class AdaptiveMediaSearchField extends material.StatelessWidget {
   final material.ValueChanged<String> onChanged;
   final material.ValueChanged<String>? onSubmitted;
   final material.VoidCallback? onClear;
+  /// 桌面端搜索框右侧的扩展动作（清空按钮之前插入）。
+  final List<material.Widget> suffixActions;
 
   @override
   material.Widget build(material.BuildContext context) {
@@ -567,6 +570,7 @@ class AdaptiveMediaSearchField extends material.StatelessWidget {
                 ),
               ),
             ),
+            ...suffixActions,
             if (controller.text.isNotEmpty)
               AdaptiveMediaIconButton(
                 desktopIcon: material.Icons.close_rounded,

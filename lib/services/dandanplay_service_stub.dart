@@ -1451,6 +1451,7 @@ class DandanplayService {
     required List<int> episodeIdList,
     bool addToFavorite = false,
     int rating = 0,
+    int? animeId,
   }) async {
     final webApiBaseUrl = await _getWebApiBaseUrl();
     if (webApiBaseUrl != null) {

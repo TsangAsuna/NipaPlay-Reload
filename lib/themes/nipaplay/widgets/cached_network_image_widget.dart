@@ -32,6 +32,9 @@ class CachedNetworkImageWidget extends StatefulWidget {
   final double? width;
   final double? height;
   final Widget Function(BuildContext, Object)? errorBuilder;
+  /// 加载彻底失败（自动重试用尽仍失败）时回调。封面管线用它清掉失效的
+  /// 持久化封面 URL，让下次加载走详情重新获取（失败重拉模型）。
+  final void Function(String url, Object error)? onPermanentLoadError;
   final bool shouldRelease;
   final Duration fadeDuration;
   final bool shouldCompress; // 兼容旧参数：允许原始字节落盘，不做额外压缩

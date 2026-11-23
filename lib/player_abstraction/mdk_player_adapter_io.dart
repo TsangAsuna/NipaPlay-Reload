@@ -527,6 +527,9 @@ class MdkPlayerAdapter
   @override
   bool get startPositionTaken => true;
 
+  @override
+  Future<void> releaseMedia() async {}
+
   Future<void> prepare() async {
     if (_released('prepare')) return;
     try {

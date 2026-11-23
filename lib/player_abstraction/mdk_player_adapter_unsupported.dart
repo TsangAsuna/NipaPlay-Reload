@@ -70,6 +70,9 @@ class MdkPlayerAdapter implements AbstractPlayer {
   @override
   bool get startPositionTaken => true;
 
+  @override
+  Future<void> releaseMedia() async {}
+
   Future<void> prepare() async {}
 
   @override

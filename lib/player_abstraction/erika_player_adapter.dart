@@ -1010,6 +1010,30 @@ class ErikaPlayerAdapter
     );
   }
 
+  /// 退出播放时关闭原生媒体，释放解码器、缓冲与 HTTP 连接，保留
+  /// ErikaPlayer 实例供下次 open 复用（open 前 PrepareForOpen 会重置）。
+  @override
+  Future<void> releaseMedia() async {
+    if (!_isSupported || _disposed) {
+      return;
+    }
+    try {
+      await _player.close();
+    } catch (error) {
+      debugPrint('[Erika] releaseMedia close failed: $error');
+    }
+    _media = '';
+    _lastPositionMs = 0;
+    _lastPositionUpdate = DateTime.now();
+    _pendingOpenStartPositionMs = null;
+    _pendingSeekTargetMs = null;
+    _seekFenceUntil = null;
+    _startPositionTaken = true;
+    _mediaInfo = PlayerMediaInfo(duration: 0);
+    _buffering.value = false;
+    _state = PlayerPlaybackState.stopped;
+  }
+
   @override
   Future<void> disposeAsync() {
     final existing = _disposeFuture;

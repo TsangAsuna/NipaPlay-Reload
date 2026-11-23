@@ -185,6 +185,15 @@ extension VideoPlayerStatePlaybackControls on VideoPlayerState {
         player.state = PlaybackState.stopped;
       }
 
+      // 释放内核持有的媒体资源（解码器/缓冲/HTTP 连接）。Erika 原生
+      // close 让退出播放后内存真正回落；播放器实例保留，下次 prepare
+      // 重新 open。其他内核默认空实现。
+      try {
+        await player.releaseMedia();
+      } catch (e) {
+        debugPrint('释放播放器媒体资源失败: $e');
+      }
+
       // 释放纹理，确保资源被正确释放
       if (player.textureId.value != null) {
         // Keep the null check for reading

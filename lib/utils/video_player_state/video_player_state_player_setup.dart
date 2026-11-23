@@ -496,22 +496,29 @@ extension VideoPlayerStatePlayerSetup on VideoPlayerState {
       // 清除视频资源
       player.state = PlaybackState.stopped;
       final bool isMediaKitKernel = player.getPlayerKernelName() == 'Media Kit';
+      // Erika 用原生 platform surface，不持有 Flutter 纹理；初始化路径中
+      // 的固定延迟对它全是白等（500+100+150+200ms），与"快速开始播放"
+      // 冲突。按内核/纹理归属条件化，Erika 直接跳过。
+      final bool isErikaKernel = player.getPlayerKernelName() == 'Erika';
       if (!isMediaKitKernel) {
         player.setMedia("", MediaType.video); // 使用空字符串和视频类型清除媒体
       }
 
-      // 释放旧纹理
-      if (player.textureId.value != null) {
+      // 释放旧纹理：只有确实持有旧纹理的内核才需要等待释放。
+      final bool hadOldTexture = player.textureId.value != null;
+      if (hadOldTexture) {
         // Keep the null check for reading
         // player.textureId.value = null; // COMMENTED OUT - ValueListenable has no setter
+        // 等待纹理完全释放
+        await Future.delayed(const Duration(milliseconds: 500));
       }
-      // 等待纹理完全释放
-      await Future.delayed(const Duration(milliseconds: 500));
       // 重置播放器状态
       if (!isMediaKitKernel) {
         player.media = '';
       }
-      await Future.delayed(const Duration(milliseconds: 100));
+      if (!isErikaKernel) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
       final bool shouldPrewarmPlatformVideoSurface =
           player.prefersPlatformVideoSurface;
       _currentVideoPath = shouldPrewarmPlatformVideoSurface ? videoPath : null;
@@ -525,7 +532,9 @@ extension VideoPlayerStatePlayerSetup on VideoPlayerState {
       _error = null;
       if (shouldPrewarmPlatformVideoSurface) {
         _setStatus(PlayerStatus.loading, message: '正在初始化播放器...');
-        await Future.delayed(const Duration(milliseconds: 150));
+        if (!isErikaKernel) {
+          await Future.delayed(const Duration(milliseconds: 150));
+        }
       } else {
         // _setStatus(PlayerStatus.idle);
         // notice:
@@ -560,8 +569,7 @@ extension VideoPlayerStatePlayerSetup on VideoPlayerState {
       // 提前读取恢复位置，供支持"打开时就位"的内核（Erika）在 prepare/open
       // 时原子定位，避免 open 后 seek 导致网络流重新下载到历史位置的黑屏。
       // 只影响 open 起始点；下面的 lastPosition 仍按原流程读取，用于锚点/UI。
-      final bool kernelSupportsOpenStart =
-          player.getPlayerKernelName() == 'Erika';
+      final bool kernelSupportsOpenStart = isErikaKernel;
       int earlyResumePosition = 0;
       if (kernelSupportsOpenStart) {
         // 与原调用点（下方 lastPosition）用完全相同的参数读取，保证
@@ -678,8 +686,9 @@ extension VideoPlayerStatePlayerSetup on VideoPlayerState {
       _startUiUpdateTimer(); // 启动UI更新定时器（已包含位置保存功能）
       // !!!!! ------------------------------------------- !!!!!
 
-      // MediaKit已经通过真实metadata事件完成放行，无需再增加固定延迟。
-      if (!isMediaKitKernel) {
+      // MediaKit已经通过真实metadata事件完成放行；Erika 的
+      // waitForPlaybackReady 也已确认 paused，额外固定延迟对两者都是白等。
+      if (!isMediaKitKernel && !isErikaKernel) {
         await Future.delayed(const Duration(milliseconds: 200));
       }
 

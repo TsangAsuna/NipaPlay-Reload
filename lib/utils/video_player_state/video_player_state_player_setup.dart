@@ -906,13 +906,17 @@ extension VideoPlayerStatePlayerSetup on VideoPlayerState {
               '_lastRawPlayerMs=$_lastRawPlayerMs '
               ' player.seek() does NOT update ptm/anchor fields');
         }
-        // 独立探针实测（erika_flutter 0.3.8 + 本机 native runtime）：
-        // open(startPosition:) 会返回 taken=true，但实际仍从 0 播放——
-        // 是假阳性；只有 open 后再显式 seek(lastPosition) 才会真正就位
-        // （探针 position 立即变为 startMs）。因此这里无条件 seek，
-        // 不再信任 startPositionTaken。startPosition 本身仍保留（若某些
-        // 原生真实现，可减少首帧前的无效解码）。
-        await player.seekAndWait(position: lastPosition);
+        // Erika open(startPosition:) 返回 taken=true 时，原生已在 open
+        // 期间完成定位，此时不再额外 seek——避免 iOS 网络流重新缓冲导致
+        // 黑屏等待。仅在未被原生接受（startPositionTaken=false）或非 Erika
+        // 内核时，才走 open 后 seek 兜底。
+        final alreadyPositionedAtOpen =
+            kernelSupportsOpenStart && player.startPositionTaken;
+        if (alreadyPositionedAtOpen) {
+          debugPrint('[PlayerSetup] Erika open 已就位 $lastPosition，跳过 open 后 seek');
+        } else {
+          await player.seekAndWait(position: lastPosition);
+        }
         //  Bug-8-2 修复：player.seek() 只调用底层 API，不更新锚点字段，
         // 导致 Ticker 首帧锚定到 playbackTimeMs=0  弹幕从头播放 + 回弹。
         // 手动更新所有锚点字段，与 seekTo() 保持一致。

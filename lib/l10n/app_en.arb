@@ -1,4 +1,5 @@
 {
+  "externalPlayerLaunchFailed": "Could not start the external player. Check its path and version. Trying the built-in player instead.",
   "@@locale": "en",
   "appTitle": "NipaPlay",
   "tabHome": "Home",
@@ -317,6 +318,11 @@
   "webdavConnectHint": "After connecting to a WebDAV server, you can browse directories and select media folders.",
   "webdavConnectionNameOptional": "Connection name (optional)",
   "webdavAddress": "WebDAV Address",
+  "addressAtLeastOne": "Please fill in at least one of the internal or public address",
+  "webdavLanAddress": "Internal Address",
+  "webdavWanAddress": "Public Address",
+  "smbLanHost": "Internal Host / IP",
+  "smbWanHost": "Public Host / IP",
   "smbAddServer": "Add SMB Server",
   "smbEditServer": "Edit SMB Server",
   "smbEnterHostOrIp": "Enter hostname or IP address",

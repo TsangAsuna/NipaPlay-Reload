@@ -99,6 +99,12 @@ abstract class AppLocalizations {
     Locale('en')
   ];
 
+  /// No description provided for @externalPlayerLaunchFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'外部播放器启动失败，请检查播放器路径和版本。已尝试使用内置播放器。'**
+  String get externalPlayerLaunchFailed;
+
   /// No description provided for @appTitle.
   ///
   /// In zh, this message translates to:
@@ -1358,6 +1364,36 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'WebDAV 地址'**
   String get webdavAddress;
+
+  /// No description provided for @addressAtLeastOne.
+  ///
+  /// In zh, this message translates to:
+  /// **'请至少填写内网地址或公网地址其中之一'**
+  String get addressAtLeastOne;
+
+  /// No description provided for @webdavLanAddress.
+  ///
+  /// In zh, this message translates to:
+  /// **'内网地址'**
+  String get webdavLanAddress;
+
+  /// No description provided for @webdavWanAddress.
+  ///
+  /// In zh, this message translates to:
+  /// **'公网地址'**
+  String get webdavWanAddress;
+
+  /// No description provided for @smbLanHost.
+  ///
+  /// In zh, this message translates to:
+  /// **'内网主机/IP 地址'**
+  String get smbLanHost;
+
+  /// No description provided for @smbWanHost.
+  ///
+  /// In zh, this message translates to:
+  /// **'公网主机/IP 地址'**
+  String get smbWanHost;
 
   /// No description provided for @smbAddServer.
   ///

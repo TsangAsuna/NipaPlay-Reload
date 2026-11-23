@@ -9,6 +9,9 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get externalPlayerLaunchFailed => '外部播放器启动失败，请检查播放器路径和版本。已尝试使用内置播放器。';
+
+  @override
   String get appTitle => 'NipaPlay';
 
   @override
@@ -692,6 +695,21 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get webdavAddress => 'WebDAV 地址';
+
+  @override
+  String get addressAtLeastOne => '请至少填写内网地址或公网地址其中之一';
+
+  @override
+  String get webdavLanAddress => '内网地址';
+
+  @override
+  String get webdavWanAddress => '公网地址';
+
+  @override
+  String get smbLanHost => '内网主机/IP 地址';
+
+  @override
+  String get smbWanHost => '公网主机/IP 地址';
 
   @override
   String get smbAddServer => '添加 SMB 服务器';
@@ -1957,6 +1975,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   AppLocalizationsZhHant() : super('zh_Hant');
 
   @override
+  String get externalPlayerLaunchFailed => '外部播放器啟動失敗，請檢查播放器路徑和版本。已嘗試使用內建播放器。';
+
+  @override
   String get appTitle => 'NipaPlay';
 
   @override
@@ -2640,6 +2661,21 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get webdavAddress => 'WebDAV 位址';
+
+  @override
+  String get addressAtLeastOne => '請至少填寫內網位址或公網位址其中之一';
+
+  @override
+  String get webdavLanAddress => '內網位址';
+
+  @override
+  String get webdavWanAddress => '公網位址';
+
+  @override
+  String get smbLanHost => '內網主機/IP 位址';
+
+  @override
+  String get smbWanHost => '公網主機/IP 位址';
 
   @override
   String get smbAddServer => '新增 SMB 伺服器';

@@ -347,11 +347,8 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     await prefs.setDouble(SettingsKeys.danmakuOpacity, opacity);
   }
 
-  // 获取映射后的弹幕不透明度
-  double get mappedDanmakuOpacity {
-    // 使用平方函数进行映射，使低值区域变化更平缓
-    return danmakuOpacity * danmakuOpacity;
-  }
+  // 交给 Flutter 弹幕渲染器的不透明度，与 Erika 原生弹幕、ASS 导出一致，直接取设置值（线性）
+  double get mappedDanmakuOpacity => danmakuOpacity;
 
   // 加载弹幕可见性
   Future<void> _loadDanmakuVisible() async {
@@ -911,6 +908,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
 
   Future<void> _loadErikaUpscalerMode() async {
     final prefs = await SharedPreferences.getInstance();
+    _erikaUpscalerModelPath = prefs.getString('erika_upscaler_model_path') ?? '';
     final stored = prefs.getInt(_erikaUpscalerModeKey);
     final resolved = stored != null &&
             stored >= 0 &&
@@ -927,6 +925,9 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
   }
 
   Future<void> setErikaUpscalerMode(PlayerUpscalerMode mode) async {
+    if (mode == PlayerUpscalerMode.erikaCustom && _erikaUpscalerModelPath.isEmpty) {
+      throw StateError('请先导入 Erika 自定义超分模型');
+    }
     if (_erikaUpscalerMode == mode) {
       await applyErikaUpscalerModeToCurrentPlayer();
       return;
@@ -947,7 +948,44 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     if (_isDisposed || !player.supportsUpscaler) {
       return;
     }
+    if (_erikaUpscalerMode == PlayerUpscalerMode.erikaCustom) {
+      if (_erikaUpscalerModelPath.isEmpty) {
+        throw StateError('请先导入 Erika 自定义超分模型');
+      }
+      await player.loadUpscalerModelFile(_erikaUpscalerModelPath);
+    }
     await player.setUpscaler(_erikaUpscalerMode);
+    // 超分档位决定弹幕所有权（开启→回退 Flutter 叠层；关闭→原生合成），
+    // 这里触发一次调和：Flutter 叠层重新喂当前弹幕列表，原生路径重推配置。
+    try {
+      handleDanmakuRendererChanged();
+    } catch (_) {}
+  }
+
+  Future<void> setErikaUpscalerModelPath(String path) async {
+    var stored = '';
+    if (path.isNotEmpty) {
+      // Own the imported bytes so picker permissions and temporary files do
+      // not make the setting disappear after relaunch (including iOS).
+      final bytes = await File(path).readAsBytes();
+      if (bytes.isEmpty) throw ArgumentError('超分模型文件为空');
+      final root = await StorageService.getAppStorageDirectory();
+      final target = File(p.join(root.path, 'erika_models',
+          '${sha256.convert(bytes)}${p.extension(path)}'));
+      await target.parent.create(recursive: true);
+      if (!await target.exists()) await target.writeAsBytes(bytes, flush: true);
+      stored = target.path;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('erika_upscaler_model_path', stored);
+    _erikaUpscalerModelPath = stored;
+    if (stored.isEmpty && _erikaUpscalerMode == PlayerUpscalerMode.erikaCustom) {
+      await setErikaUpscalerMode(PlayerUpscalerMode.off);
+      if (player.supportsUpscaler) await player.clearUpscalerModel();
+    } else {
+      await applyErikaUpscalerModeToCurrentPlayer();
+    }
+    _notifyListeners();
   }
 
   bool _supportsErikaUpscalerForCurrentPlayer() {
@@ -1229,26 +1267,48 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
       final int targetWidth = (snapshot.srcWidth! * factor).round();
       final int targetHeight = (snapshot.srcHeight! * factor).round();
 
+      // 超分纹理尺寸上限：iPad Pro 12.9 一类设备会把 1080p 源抬到
+      // 3840x2160 全量跑 CNN（日志实测 VideoOutput.Resize 3840x2160），
+      // 每帧推理逼近帧预算 → 间断性黑帧 + 弹幕（Flutter 叠层）被渲染
+      // 压力拖着掉帧。2560 宽在 12.9 寸屏上视觉与 4K 等效（超采样边际
+      // 递减），CNN 像素量减 56%。Windows 走下方 4096 保护逻辑不变。
+      int cappedWidth = targetWidth;
+      int cappedHeight = targetHeight;
+      const int maxUpscaleDimension = 2560;
+      if (targetWidth > maxUpscaleDimension ||
+          targetHeight > maxUpscaleDimension) {
+        final double scale =
+            maxUpscaleDimension / (targetWidth > targetHeight
+                ? targetWidth
+                : targetHeight);
+        cappedWidth = (targetWidth * scale).round();
+        cappedHeight = (targetHeight * scale).round();
+        debugPrint(
+          '[VideoPlayerState] Anime4K 目标尺寸 ${targetWidth}x${targetHeight} '
+          '超上限，压到 ${cappedWidth}x${cappedHeight} 保帧率',
+        );
+      }
+
       if (!kIsWeb && Platform.isWindows) {
         const int maxDimension = 4096;
-        if (targetWidth > maxDimension || targetHeight > maxDimension) {
+        if (cappedWidth > maxDimension || cappedHeight > maxDimension) {
           debugPrint(
-            '[VideoPlayerState] Windows Anime4K 目标尺寸过大，跳过放大以避免黑屏: ${targetWidth}x${targetHeight}',
+            '[VideoPlayerState] Windows Anime4K 目标尺寸过大，跳过放大以避免黑屏: ${cappedWidth}x${cappedHeight}',
           );
           await player.setVideoSurfaceSize();
           return;
         }
       }
 
-      if (snapshot.displayWidth == targetWidth &&
-          snapshot.displayHeight == targetHeight) {
+      if (snapshot.displayWidth == cappedWidth &&
+          snapshot.displayHeight == cappedHeight) {
         // 已经是目标尺寸
         return;
       }
 
       await player.setVideoSurfaceSize(
-        width: targetWidth,
-        height: targetHeight,
+        width: cappedWidth,
+        height: cappedHeight,
       );
     } catch (e) {
       if (retry < maxRetry) {
@@ -1447,13 +1507,21 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
   Future<void> _loadTitanDanmakuSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final encoded = prefs.getString(SettingsKeys.titanDanmakuSettings);
-    if (encoded == null || encoded.isEmpty) return;
+    if (encoded == null || encoded.isEmpty) {
+      if (globals.isPhone) {
+        _titanDanmakuSettings =
+            _titanDanmakuSettings.copyWith(trackGap: 0.15);
+        _notifyListeners();
+      }
+      return;
+    }
     try {
       final decoded = jsonDecode(encoded);
       if (decoded is Map) {
-        _titanDanmakuSettings = TitanDanmakuSettings.fromJson(
-          Map<String, dynamic>.from(decoded),
-        );
+        final json = Map<String, dynamic>.from(decoded);
+        // 旧版本未持久化轨道间距时，按设备类型补齐默认值（手机 0.15，其他 0）。
+        json.putIfAbsent('trackGap', () => globals.isPhone ? 0.15 : 0.0);
+        _titanDanmakuSettings = TitanDanmakuSettings.fromJson(json);
         _notifyListeners();
       }
     } catch (error) {
@@ -1897,6 +1965,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
             VideoPlayerState.defaultSubtitleScale);
     _srtSubtitleDelaySeconds = prefs.getDouble(_srtSubtitleDelayKey) ??
         VideoPlayerState.defaultSubtitleDelaySeconds;
+    _subtitleManager.srtDelaySeconds = _srtSubtitleDelaySeconds;
     _subtitleDelaySeconds = prefs.getDouble(_subtitleDelayKey) ??
         VideoPlayerState.defaultSubtitleDelaySeconds;
     _subtitlePosition = _clampSubtitlePosition(
@@ -1913,6 +1982,9 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
         VideoPlayerState.defaultSubtitleMarginX;
     _subtitleMarginY = prefs.getDouble(_subtitleMarginYKey) ??
         VideoPlayerState.defaultSubtitleMarginY;
+    // 内嵌字幕整块移动模式（双语不重叠）：跨会话记忆。
+    _embeddedSubtitleOverlayMode =
+        prefs.getBool(_embeddedSubtitleOverlayModeKey) ?? false;
     _subtitleOpacity = _clampSubtitleOpacity(
       prefs.getDouble(_subtitleOpacityKey) ??
           VideoPlayerState.defaultSubtitleOpacity,
@@ -1978,6 +2050,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     final clamped = _resolveSubtitleDelaySecondsForCurrentVideo(seconds);
     if (_srtSubtitleDelaySeconds == clamped) return;
     _srtSubtitleDelaySeconds = clamped;
+    _subtitleManager.srtDelaySeconds = clamped;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_srtSubtitleDelayKey, clamped);
     _notifyListeners();
@@ -2531,11 +2604,10 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
         }
     try {
       final playerKernelName = player.getPlayerKernelName();
-      if (playerKernelName == 'Erika') {
-        player.setProperty('sub-scale', _subtitleScale.toStringAsFixed(2));
-        return;
-      }
-      if (playerKernelName != 'Media Kit' && playerKernelName != 'MDK') {
+      // Erika 取同一组 mpv 字幕属性，由它的适配器合成一次 setSubtitleStyle。
+      if (playerKernelName != 'Media Kit' &&
+          playerKernelName != 'MDK' &&
+          playerKernelName != 'Erika') {
               return;
             }
             // mdk 属性名是 subtitle.scale（sub-scale 是 mpv 的）——之前用错
@@ -2835,6 +2907,8 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
       _screenshotSaveTarget = ScreenshotSaveTargetDisplay.fromPrefs(stored);
     _screenshotQuality =
         ScreenshotQualityDisplay.fromPrefs(prefs.getInt(_screenshotQualityKey));
+    _screenshotFormat =
+        ScreenshotFormat.fromPreference(prefs.getString(_screenshotFormatKey));
     _screenshotCaptureIncludesDanmaku =
         prefs.getBool(_screenshotIncludeDanmakuKey) ?? true;
     _screenshotCaptureIncludesSubtitles =
@@ -2869,6 +2943,14 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     } catch (e) {
       debugPrint('保存截图默认保存位置失败: $e');
     }
+    _notifyListeners();
+  }
+
+  Future<void> setScreenshotFormat(ScreenshotFormat format) async {
+    if (_screenshotFormat == format) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_screenshotFormatKey, format.name);
+    _screenshotFormat = format;
     _notifyListeners();
   }
 
@@ -2911,6 +2993,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
       await initializePlayer(
         path,
         historyItem: history,
+        mediaLibraryScope: _playbackDetailContext?.mediaLibraryScope,
         resetManualDanmakuOffset: false,
         episodeFileSelectionHandled: true,
       );
@@ -2938,9 +3021,6 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
     await prefs.setBool(_screenshotCropLetterboxKey, value);
     _notifyListeners();
   }
-
-  /// 视频画面尺寸模式（适应/填充/拉伸/16:9/4:3）
-  VideoAspectMode get videoAspectMode => _videoAspectMode;
 
   Future<void> setVideoAspectMode(VideoAspectMode mode) async {
     if (_videoAspectMode == mode) return;
@@ -2978,6 +3058,7 @@ extension VideoPlayerStatePreferences on VideoPlayerState {
         await initializePlayer(
           path,
           historyItem: history,
+          mediaLibraryScope: _playbackDetailContext?.mediaLibraryScope,
           resetManualDanmakuOffset: false,
           episodeFileSelectionHandled: true,
         );

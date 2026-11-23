@@ -159,12 +159,26 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
   void setExternalSubtitle(String path, {bool isManualSetting = false}) {
     _subtitleManager.setExternalSubtitle(path,
         isManualSetting: isManualSetting);
+    // Activation changes which kernel track owns the sid; the whole-block
+    // mode must step aside for a kernel-rendered external ASS (and resume
+    // for embedded tracks), so re-sync sub-visibility.
+    applyEmbeddedSubtitleOverlayKernelState();
+    _notifyListeners();
+  }
+
+  // 选内嵌字幕轨（>= 0）或关闭字幕（< 0）。多选共存：不再摘外挂；
+  // 轨道选择改变内核字幕渲染归属（外挂 app 叠层 + 内嵌轨内核渲染可
+  // 共存），kernel 渲染开关必须重算。
+  void selectEmbeddedSubtitleTrack(int trackIndex) {
+    _subtitleManager.selectEmbeddedSubtitleTrack(trackIndex);
+    applyEmbeddedSubtitleOverlayKernelState();
     _notifyListeners();
   }
 
   // 强制设置外部字幕（手动操作）
   void forceSetExternalSubtitle(String path) {
     _subtitleManager.forceSetExternalSubtitle(path);
+    applyEmbeddedSubtitleOverlayKernelState();
     _notifyListeners();
   }
 
@@ -178,12 +192,17 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
       {String? displayName}) async {
     await _subtitleManager.addExternalSubtitleToStack(path,
         displayName: displayName);
+    // 多选共存：挂载/移除改变 app-only 栈的 exclusive 判定，kernel 渲染
+    // 开关（sub-visibility）需重算——旧互斥语义由 setExternalSubtitle
+    // 链路顺带完成，改造后必须显式调。
+    applyEmbeddedSubtitleOverlayKernelState();
     _notifyListeners();
   }
 
   // 桥接方法：取消挂载外部字幕（从叠层/内核移除）
   Future<void> removeExternalSubtitle(String path) async {
     await _subtitleManager.removeExternalSubtitleFromStack(path);
+    applyEmbeddedSubtitleOverlayKernelState();
     _notifyListeners();
   }
 
@@ -206,6 +225,14 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
   /// 查询单条字幕在指定时间点的文本
   String pathSubtitleTextAt(String path, int positionMs) =>
       _subtitleManager.pathSubtitleTextAt(path, positionMs);
+
+  /// 叠层里这条外挂字幕的总偏移（毫秒）：SRT/VTT 含共用的 SRT 偏移
+  int overlaySubtitleDelayMs(String path) =>
+      _subtitleManager.overlayDelayMs(path);
+
+  /// 叠层此刻给出的这条外挂字幕的那一行（已按偏移）
+  String overlaySubtitleTextAt(String path, int playbackMs) =>
+      _subtitleManager.overlayTextAt(path, playbackMs);
 
   /// 某条字幕的显示名（无登记时回退文件名）
   String externalSubtitleDisplayName(String path) =>
@@ -255,6 +282,171 @@ extension VideoPlayerStateSubtitles on VideoPlayerState {
   // 桥接方法：当字幕轨道改变时调用
   void onSubtitleTrackChanged() {
     _subtitleManager.onSubtitleTrackChanged();
+  }
+
+  // ---- Whole-block embedded subtitle mode (bilingual, non-overlapping) ----
+
+  /// Whether whole-block mode is enabled. With it on, the kernel only
+  /// decodes (sub-visibility=no) while the app renders the whole block from
+  /// sub-text polling: the position slider moves the entire block so the
+  /// authored bilingual line gap never collapses, and the horizontal margin
+  /// applies in screen pixels regardless of the script's PlayRes.
+  ///
+  /// Exception: while a kernel-rendered external ASS/SSA is active the mode
+  /// steps aside (see [isKernelRenderedExternalAssActive]) so libass keeps
+  /// rendering that track with its script styles.
+  bool get embeddedSubtitleOverlayMode => _embeddedSubtitleOverlayMode;
+
+  /// Whether the currently active external subtitle is a kernel-track
+  /// ASS/SSA. Whole-block mode only serves embedded tracks — an external
+  /// ASS is rendered by libass with script-dominant styling; flattening it
+  /// through sub-visibility=no + a sub-text text block would strip \pos
+  /// positioning and colors.
+  bool get isKernelRenderedExternalAssActive =>
+      _subtitleManager.isKernelRenderedExternalAssActive();
+
+  // An app-only external stack replaces native subtitles. mpv can still
+  // auto-select a same-name sidecar after we clear sid, so keep its renderer
+  // hidden for as long as the app owns that stack. Mixed native ASS + SRT
+  // stacks retain the ASS renderer.
+  //
+  // 多选共存例外：用户显式选中内嵌轨（activeSubtitleTracks 非空）时，
+  // 内嵌字幕由内核渲染、外挂由 Flutter 叠层渲染，画面互不占用——
+  // 此时内核渲染器必须保持可见，否则“外挂 srt + 内嵌轨同挂”场景下
+  // 内嵌轨被 sub-visibility=no 压住不出画面。
+  bool get _externalSubtitleOverlayIsExclusive =>
+      shouldRenderCurrentExternalSubtitleInApp() &&
+      player.activeSubtitleTracks.isEmpty &&
+      !activeExternalSubtitlePaths
+          .any((path) => !externalSubtitleRenderedInApp(path));
+
+  bool get shouldRenderEmbeddedSubtitleOverlay =>
+      _embeddedSubtitleOverlayMode &&
+      !isKernelRenderedExternalAssActive &&
+      // 选了内嵌轨由内核直接渲染，whole-block 文本块退位（否则
+      // sub-text 块与内核轨双重显示同一条内嵌字幕）。
+      player.activeSubtitleTracks.isEmpty &&
+      !_externalSubtitleOverlayIsExclusive;
+
+  Future<void> setEmbeddedSubtitleOverlayMode(bool enabled) async {
+    if (_embeddedSubtitleOverlayMode == enabled) return;
+    _embeddedSubtitleOverlayMode = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_embeddedSubtitleOverlayModeKey, enabled);
+    applyEmbeddedSubtitleOverlayKernelState();
+    _notifyListeners();
+  }
+
+  /// Whole-block text for the current position (kernel sub-text polling;
+  /// empty = no subtitle right now).
+  String get embeddedSubtitleOverlayText => _embeddedSubtitleOverlayText;
+
+  /// The text actually rendered: bilingual line order auto-correction.
+  /// The kernel orders sub-text lines by event order, which may put the
+  /// Japanese line first. Lines containing kana are treated as the original
+  /// (bottom), pure-Han lines as the translation (top); when there is no
+  /// kana evidence the kernel order is kept.
+  String get embeddedSubtitleOverlayDisplayText {
+    final text = _embeddedSubtitleOverlayText;
+    if (!text.contains('\n')) return text;
+    final lines = text.split('\n');
+    bool hasKana(String s) {
+      for (final r in s.runes) {
+        if ((r >= 0x3041 && r <= 0x309F) || // Hiragana
+            (r >= 0x30A0 && r <= 0x30FF) || // Katakana
+            (r >= 0x31F0 && r <= 0x31FF) || // Katakana phonetic extensions
+            (r >= 0xFF66 && r <= 0xFF9D)) {
+          // Halfwidth katakana
+          return true;
+        }
+      }
+      return false;
+    }
+
+    final kanaCount = lines.where(hasKana).length;
+    if (kanaCount == 0 || kanaCount == lines.length) return text;
+    final japanese = lines.where(hasKana).toList();
+    final chinese = lines.where((l) => !hasKana(l)).toList();
+    return [...chinese, ...japanese].join('\n');
+  }
+
+  /// Sync the kernel render switch with the current mode. Idempotent; call
+  /// after mode toggles, video open, kernel hot-swap, and external-subtitle
+  /// activation changes. Media Kit hides its renderer for the embedded
+  /// whole-block mode or an app-only external stack. Native external ASS
+  /// stacks keep libass rendering, including when an SRT is stacked over it.
+  void applyEmbeddedSubtitleOverlayKernelState() {
+    if (kIsWeb || _isDisposed) return;
+    try {
+      final renderEmbedded = shouldRenderEmbeddedSubtitleOverlay;
+      // 用户显式选中内嵌轨时由内核渲染（多选共存），内核渲染器不隐藏；
+      // 否则维持原逻辑：whole-block 或 app-only 栈隐藏内核字幕。
+      final embeddedTrackSelected = player.activeSubtitleTracks.isNotEmpty;
+      if (player.getPlayerKernelName() == 'Media Kit' &&
+          (renderEmbedded || _externalSubtitleOverlayIsExclusive) &&
+          !embeddedTrackSelected) {
+        player.setProperty('sub-visibility', 'no');
+      } else {
+        player.setProperty('sub-visibility', 'yes');
+      }
+      if (!renderEmbedded && _embeddedSubtitleOverlayText.isNotEmpty) {
+        _embeddedSubtitleOverlayText = '';
+        _notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('VideoPlayerState: sync whole-block kernel state failed: $e');
+    }
+  }
+
+  /// Throttled poll entry from the position ticker (~8Hz, notifies only on
+  /// text change).
+  void pollEmbeddedSubtitleOverlayText() {
+    if (!_embeddedSubtitleOverlayMode || kIsWeb || _isDisposed) return;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastEmbeddedSubTextPollMs < 120) return;
+    _lastEmbeddedSubTextPollMs = nowMs;
+    unawaited(_pollEmbeddedSubtitleOverlayText());
+  }
+
+  /// Reduced-frequency poll while paused (800ms): keeps the text fresh when
+  /// the user drags style sliders on a paused frame — otherwise the stale
+  /// line can be pushed off-frame by a kernel style recompute and the user
+  /// perceives "subtitle vanished until the next seek".
+  void pollEmbeddedSubtitleOverlayTextPaused() {
+    if (!_embeddedSubtitleOverlayMode || kIsWeb || _isDisposed) return;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastEmbeddedSubTextPollMs < 800) return;
+    _lastEmbeddedSubTextPollMs = nowMs;
+    unawaited(_pollEmbeddedSubtitleOverlayText());
+  }
+
+  Future<void> _pollEmbeddedSubtitleOverlayText() async {
+    try {
+      // External subtitles already have a renderer. Clear any embedded
+      // text collected before the switch instead of duplicating their cues.
+      if (!shouldRenderEmbeddedSubtitleOverlay) {
+        if (_embeddedSubtitleOverlayText.isNotEmpty) {
+          _embeddedSubtitleOverlayText = '';
+          _notifyListeners();
+        }
+        return;
+      }
+      final text = await player.getLiveProperty('sub-text') ?? '';
+      // A subtitle selection can change while the native read is in flight.
+      if (_isDisposed || !shouldRenderEmbeddedSubtitleOverlay) return;
+      final trimmed = text.trim();
+      if (trimmed == _embeddedSubtitleOverlayText) return;
+      _embeddedSubtitleOverlayText = trimmed;
+      _notifyListeners();
+    } catch (_) {}
+  }
+
+  /// Test-only: inject the whole-block text directly (bypasses the real
+  /// clock throttle so widget tests on FakeAsync can drive it with pump).
+  @visibleForTesting
+  void debugSetEmbeddedSubtitleOverlayText(String text) {
+    _embeddedSubtitleOverlayText = text;
+    _notifyListeners();
   }
 
   // 桥接方法：获取缓存的字幕内容

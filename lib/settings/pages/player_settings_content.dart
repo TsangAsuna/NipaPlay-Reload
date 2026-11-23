@@ -1,3 +1,5 @@
+import 'package:file_selector/file_selector.dart';
+import 'package:nipaplay/player_abstraction/erika_player_adapter.dart';
 import 'dart:io' if (dart.library.io) 'dart:io';
 import 'package:flutter/cupertino.dart' as cupertino;
 import 'package:flutter/material.dart';
@@ -6,6 +8,7 @@ import 'package:nipaplay/l10n/l10n.dart';
 import 'package:nipaplay/providers/settings_provider.dart';
 import 'package:nipaplay/settings/adaptive_settings_widgets.dart';
 import 'package:nipaplay/settings/adaptive_settings_scope.dart';
+import 'package:nipaplay/settings/widgets/erika_upscaler_group_tile.dart';
 import 'package:nipaplay/utils/video_player_state.dart';
 import 'package:provider/provider.dart';
 import 'package:nipaplay/themes/nipaplay/widgets/blur_snackbar.dart';
@@ -13,11 +16,11 @@ import 'package:nipaplay/player_abstraction/player_factory.dart';
 import 'package:flutter/foundation.dart';
 import 'package:nipaplay/themes/nipaplay/widgets/blur_dropdown.dart';
 import 'package:nipaplay/player_abstraction/player_data_models.dart';
-import 'package:nipaplay/providers/labs_settings_provider.dart';
 import 'package:nipaplay/utils/anime4k_shader_manager.dart';
 import 'package:nipaplay/utils/crt_shader_manager.dart';
 import 'package:nipaplay/utils/globals.dart' as globals;
 import 'package:nipaplay/services/auto_next_episode_service.dart';
+import 'package:nipaplay/widgets/in_view_dialog.dart';
 
 class PlayerSettingsContent extends StatefulWidget {
   const PlayerSettingsContent({super.key});
@@ -36,7 +39,6 @@ class _PlayerSettingsContentState extends State<PlayerSettingsContent> {
   // 为BlurDropdown添加GlobalKey
   final GlobalKey _playerKernelDropdownKey = GlobalKey();
   final GlobalKey _androidAudioOutputDropdownKey = GlobalKey();
-  final GlobalKey _erikaUpscalerDropdownKey = GlobalKey();
   final GlobalKey _erikaAndroidOutputDropdownKey = GlobalKey();
   final GlobalKey _seekStepDropdownKey = GlobalKey();
   final GlobalKey _speedBoostDropdownKey = GlobalKey();
@@ -166,7 +168,7 @@ class _PlayerSettingsContentState extends State<PlayerSettingsContent> {
       case PlayerKernelType.mediaKit:
         return 'MediaKit (Libmpv) 播放器\n基于MPV，功能强大，支持硬件解码，支持复杂媒体格式';
       case PlayerKernelType.erika:
-        return 'Erika Rust 播放器（实验性）\niOS/tvOS/macOS 使用 Metal，Windows 使用 D3D11，Android 使用 wgpu；HarmonyOS 使用 OHNativeWindow、OpenGL ES 和 OHAudio';
+        return 'Erika Rust 播放器\niOS/tvOS/macOS 使用 Metal，Windows 使用 D3D11，Android 使用 wgpu；HarmonyOS 使用 OHNativeWindow、OpenGL ES 和 OHAudio';
     }
   }
 
@@ -222,29 +224,16 @@ class _PlayerSettingsContentState extends State<PlayerSettingsContent> {
     }
   }
 
-  String _getErikaUpscalerTitle(PlayerUpscalerMode mode) {
-    switch (mode) {
-      case PlayerUpscalerMode.off:
-        return '关闭';
-      case PlayerUpscalerMode.erikaArtCnnC4F16:
-        return 'ART-CNN C4F16';
-      case PlayerUpscalerMode.erikaArtCnnC4F32:
-        return 'ART-CNN C4F32';
-      case PlayerUpscalerMode.erikaArtCnnC4F16Ds:
-        return 'ART-CNN C4F16 DS';
-    }
-  }
+  String _getErikaUpscalerTitle(PlayerUpscalerMode mode) => mode.label;
 
-  String _getErikaUpscalerDescription(PlayerUpscalerMode mode) {
-    switch (mode) {
-      case PlayerUpscalerMode.off:
-        return '不启用 Erika 内核超分辨率';
-      case PlayerUpscalerMode.erikaArtCnnC4F16:
-        return '半精度 ART-CNN，速度优先，推荐日常播放';
-      case PlayerUpscalerMode.erikaArtCnnC4F32:
-        return '单精度 ART-CNN，画质优先，对 GPU 压力更高';
-      case PlayerUpscalerMode.erikaArtCnnC4F16Ds:
-        return '半精度去噪锐化 ART-CNN，适合压缩痕迹明显的动画视频';
+  Future<void> _selectErikaUpscalerModel(VideoPlayerState state) async {
+    try {
+      final selected = await openFile();
+      if (selected == null) return;
+      await state.setErikaUpscalerModelPath(selected.path);
+      await state.setErikaUpscalerMode(PlayerUpscalerMode.erikaCustom);
+    } catch (error) {
+      if (mounted) BlurSnackBar.show(context, '导入超分模型失败：$error');
     }
   }
 
@@ -301,10 +290,7 @@ class _PlayerSettingsContentState extends State<PlayerSettingsContent> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final showErikaKernel = PlayerFactory.isErikaKernelSupported &&
-        (globals.isTelevision ||
-            PlayerFactory.isHarmonyOS ||
-            context.watch<LabsSettingsProvider>().enableErikaPlayerKernel);
+    final showErikaKernel = PlayerFactory.isErikaKernelSupported;
     final fallbackKernelType =
         globals.isTelevision ? PlayerKernelType.erika : PlayerKernelType.mdk;
     final visibleKernelType =
@@ -418,41 +404,54 @@ class _PlayerSettingsContentState extends State<PlayerSettingsContent> {
             if (visibleKernelType == PlayerKernelType.erika) ...[
               Consumer<VideoPlayerState>(
                 builder: (context, videoState, child) {
-                  final currentMode = videoState.erikaUpscalerMode;
-                  final items = PlayerUpscalerMode.values
-                      .map(
-                        (mode) => DropdownMenuItemData(
-                          title: _getErikaUpscalerTitle(mode),
-                          value: mode,
-                          isSelected: mode == currentMode,
-                          description: _getErikaUpscalerDescription(mode),
-                        ),
-                      )
-                      .toList();
-                  return AdaptiveSettingsTile.dropdown(
-                    title: 'Erika 超分辨率',
-                    subtitle: '使用 Erika ART-CNN 对视频帧做实时超分',
-                    icon: Ionicons.sparkles_outline,
-                    items: items,
-                    onChanged: (dynamic value) async {
-                      if (value is! PlayerUpscalerMode) return;
-                      await videoState.setErikaUpscalerMode(value);
+                  return ErikaUpscalerGroupTile(
+                    currentMode: videoState.erikaUpscalerMode,
+                    availableModes: ErikaPlayerAdapter.availableUpscalerModes,
+                    onModeSelected: (mode) async {
+                      try {
+                        await videoState.setErikaUpscalerMode(mode);
+                      } catch (error) {
+                        if (context.mounted) {
+                          BlurSnackBar.show(context, '$error');
+                        }
+                        return;
+                      }
                       if (!context.mounted) return;
-                      final option = _getErikaUpscalerTitle(value);
                       BlurSnackBar.show(
                         context,
-                        value == PlayerUpscalerMode.off
+                        mode == PlayerUpscalerMode.off
                             ? '已关闭 Erika 超分辨率'
-                            : 'Erika 超分辨率已切换为$option',
+                            : 'Erika 超分辨率已切换为${_getErikaUpscalerTitle(mode)}',
                       );
                     },
-                    dropdownKey: _erikaUpscalerDropdownKey,
                   );
                 },
               ),
               Divider(
                   color: colorScheme.onSurface.withValues(alpha: 0.12),
                   height: 1),
+              if (ErikaPlayerAdapter.supportsNeuralUpscaler)
+                Consumer<VideoPlayerState>(builder: (context, state, _) => Column(children: [
+                  AdaptiveSettingsTile.button(
+                    title: '导入 Erika 超分模型',
+                    subtitle: state.erikaUpscalerModelPath.isEmpty
+                        ? '选择 .esr 或 FSRCNNX / Anime4K CNN shader'
+                        : state.erikaUpscalerModelPath,
+                    icon: Ionicons.folder_open_outline,
+                    onTap: () => _selectErikaUpscalerModel(state),
+                  ),
+                  if (state.erikaUpscalerModelPath.isNotEmpty)
+                    AdaptiveSettingsTile.button(
+                      title: '停用自定义模型',
+                      icon: Ionicons.close_outline,
+                      onTap: () async {
+                        try { await state.setErikaUpscalerModelPath(''); }
+                        catch (error) {
+                          if (context.mounted) BlurSnackBar.show(context, '$error');
+                        }
+                      },
+                    ),
+                ])),
               if (!kIsWeb && Platform.isAndroid) ...[
                 AdaptiveSettingsTile.dropdown(
                   title: 'Erika Android 输出',
@@ -803,7 +802,7 @@ class _PlayerSettingsContentState extends State<PlayerSettingsContent> {
                                   ],
                                 ),
                               )
-                            : await showDialog<bool>(
+                            : await showInViewDialog<bool>(
                                 context: context,
                                 builder: (dialogContext) => AlertDialog(
                                   title: const Text('开启警告'),

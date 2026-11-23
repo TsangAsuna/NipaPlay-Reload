@@ -284,6 +284,8 @@ runs:
         flutter pub get --enforce-lockfile
 
     - name: Download full libmpv package
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
       shell: pwsh
       run: |
         $customUrl = $env:LIBMPV_DOWNLOAD_URL
@@ -575,6 +577,9 @@ runs:
         PrivilegesRequired=lowest
         PrivilegesRequiredOverridesAllowed=dialog
         UsePreviousPrivileges=yes
+        CloseApplications=force
+        CloseApplicationsFilter={#MyAppExeName}
+        RestartApplications=no
         LicenseFile="$licensePath"
 
         [Languages]

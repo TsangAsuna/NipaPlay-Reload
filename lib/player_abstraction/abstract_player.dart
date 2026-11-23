@@ -142,6 +142,10 @@ abstract class AbstractPlayer {
 
   /// 退出播放时释放当前媒体的原生资源（解码器、缓冲、网络连接），
   /// 保留播放器实例供下次 open 复用。默认空实现；不支持的内核无操作。
+  Future<void> releaseMedia() async {}
+
+  /// 退出播放时释放当前媒体的原生资源（解码器、缓冲、网络连接），
+  /// 保留播放器实例供下次 open 复用。默认空实现；不支持的内核无操作。
   
   void seek({required int position});
 

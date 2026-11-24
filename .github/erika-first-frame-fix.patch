@@ -1,0 +1,336 @@
+diff --git a/crates/erika/src/core.rs b/crates/erika/src/core.rs
+index 7b33e4c..426d278 100644
+--- a/crates/erika/src/core.rs
++++ b/crates/erika/src/core.rs
+@@ -1652,51 +1652,158 @@ impl Player {
+             self.emit(PlayerEvent::BufferingChanged(false));
+             epoch
+         };
+-        let mut engine = match VideoPlaybackEngine::open_with_cold_open_cancellation(
+-            &media,
+-            self.config.playback,
+-            self.decoder_resources.clone(),
+-            cold_open_cancellation.clone(),
+-        ) {
+-            Ok(engine) => engine,
+-            Err(error) => {
+-                if cold_open_cancellation.as_ref().is_some_and(|c| !c.finish()) {
++    // Record the open-request timestamp at the very start of the open flow.
++    trace::diagnostic(
++        serde_json::json!({
++            "event": "open_start",
++            "stage": "open_requested",
++            "uri": media.uri,
++            "startPositionMicros": media.start_position.map(|p| p.as_micros() as u64),
++        })
++        .to_string(),
++    );
++
++    let mut engine = match VideoPlaybackEngine::open_with_cold_open_cancellation(
++        &media,
++        self.config.playback,
++        self.decoder_resources.clone(),
++        cold_open_cancellation.clone(),
++    ) {
++        Ok(engine) => engine,
++        Err(error) => {
++            if cold_open_cancellation.as_ref().is_some_and(|c| !c.finish()) {
++                self.finish_cancelled_cold_open(epoch);
++                return Err(self.superseded_open_error());
++            }
++            let error = PlayerError::Playback(error.to_string());
++            let lifecycle = self
++                .lifecycle
++                .lock()
++                .expect("player lifecycle mutex poisoned");
++            if lifecycle.epoch != epoch {
++                return Err(self.superseded_open_error());
++            }
++            self.transition(PlayerState::Error)?;
++            self.emit(PlayerEvent::Error(error.clone()));
++            return Err(error);
++        }
++    };
++    let info = engine.info().clone();
++    // Media open is complete: format context opened, stream info probed,
++    // audio/video/subtitle decoders instantiated. Record streams-ready here.
++    trace::diagnostic(
++        serde_json::json!({
++            "event": "media_open_complete",
++            "stage": "streams_ready",
++            "uri": media.uri,
++            "durationMicros": info.duration.map(|d| d.as_micros() as u64),
++            "selectedVideoTrack": info.selected_video_track.map(|t| t as u64),
++            "selectedAudioTrack": info.selected_audio_track.map(|t| t as u64),
++            "videoDecodeBackend": info.video_decode_backend.map(|b| b.as_str().to_string()),
++        })
++        .to_string(),
++    );
++    // Seek before the worker starts, so the first frame it presents is
++    // the one at the start position.
++    let start = media
++        .start_position
++        .filter(|start| info.duration.is_none_or(|duration| *start < duration));
++    if let Some(start) = start {
++        trace::diagnostic(
++            serde_json::json!({
++                "event": "seek_requested",
++                "stage": "seek_requested",
++                "positionMicros": start.as_micros() as u64,
++            })
++            .to_string(),
++        );
++        if let Err(error) = engine.seek(start) {
++            trace::diagnostic(
++                serde_json::json!({
++                    "event": "open_start_position",
++                    "stage": "seek_failed",
++                    "positionMicros": start.as_micros() as u64,
++                    "reason": error.to_string(),
++                })
++                .to_string(),
++            );
++        } else {
++            trace::diagnostic(
++                serde_json::json!({
++                    "event": "seek_completed",
++                    "stage": "seek_completed",
++                    "positionMicros": start.as_micros() as u64,
++                })
++                .to_string(),
++            );
++            // Wait for the first frame to actually decode at the seek target
++            // before returning from open(). av_seek_frame only moves the read
++            // pointer; without decoding a frame here the worker loop would
++            // decode the first frame lazily on its first tick, causing a
++            // black screen on network streams while data is downloaded.
++            let decode_started = Instant::now();
++            let decode_timeout = Duration::from_secs(10);
++            let mut first_frame_decoded = false;
++            while decode_started.elapsed() < decode_timeout {
++                if cold_open_cancellation
++                    .as_ref()
++                    .is_some_and(|c| !c.finish())
++                {
+                     self.finish_cancelled_cold_open(epoch);
+                     return Err(self.superseded_open_error());
+                 }
+-                let error = PlayerError::Playback(error.to_string());
+-                let lifecycle = self
+-                    .lifecycle
+-                    .lock()
+-                    .expect("player lifecycle mutex poisoned");
+-                if lifecycle.epoch != epoch {
+-                    return Err(self.superseded_open_error());
++                match engine.next_video_frame() {
++                    Ok(Some(frame)) => {
++                        let pts = frame.pts().and_then(|pts| pts.as_duration());
++                        trace::diagnostic(
++                            serde_json::json!({
++                                "event": "first_frame_decoded",
++                                "stage": "first_frame_decoded",
++                                "positionMicros": start.as_micros() as u64,
++                                "framePtsMicros": pts.map(|p| p.as_micros() as u64),
++                                "decodeElapsedMicros": decode_started.elapsed().as_micros() as u64,
++                                "decodeBackend": frame.decode_backend.as_str().to_string(),
++                            })
++                            .to_string(),
++                        );
++                        first_frame_decoded = true;
++                        break;
++                    }
++                    Ok(None) => {
++                        // No frame yet; keep pumping until the timeout.
++                        // A brief yield lets the demuxer source make progress
++                        // on slow network streams without busy-spinning.
++                        std::thread::sleep(Duration::from_millis(2));
++                    }
++                    Err(error) => {
++                        trace::diagnostic(
++                            serde_json::json!({
++                                "event": "first_frame_decoded",
++                                "stage": "first_frame_decode_failed",
++                                "positionMicros": start.as_micros() as u64,
++                                "reason": error.to_string(),
++                                "decodeElapsedMicros": decode_started.elapsed().as_micros() as u64,
++                            })
++                            .to_string(),
++                        );
++                        break;
++                    }
+                 }
+-                self.transition(PlayerState::Error)?;
+-                self.emit(PlayerEvent::Error(error.clone()));
+-                return Err(error);
+             }
+-        };
+-        let info = engine.info().clone();
+-        // Seek before the worker starts, so the first frame it presents is
+-        // the one at the start position.
+-        let start = media
+-            .start_position
+-            .filter(|start| info.duration.is_none_or(|duration| *start < duration));
+-        if let Some(start) = start {
+-            if let Err(error) = engine.seek(start) {
++            if !first_frame_decoded {
+                 trace::diagnostic(
+                     serde_json::json!({
+-                        "event": "open_start_position",
+-                        "stage": "seek_failed",
++                        "event": "first_frame_decoded",
++                        "stage": "first_frame_decode_timeout",
+                         "positionMicros": start.as_micros() as u64,
+-                        "reason": error.to_string(),
++                        "timeoutSeconds": decode_timeout.as_secs_f64(),
+                     })
+                     .to_string(),
+                 );
+             }
+         }
+-        let start = start.unwrap_or(Duration::ZERO);
++    }
++    let start = start.unwrap_or(Duration::ZERO);
+         if cold_open_cancellation.as_ref().is_some_and(|c| !c.finish()) {
+             self.finish_cancelled_cold_open(epoch);
+             return Err(self.superseded_open_error());
+diff --git a/crates/erika/src/ffmpeg.rs b/crates/erika/src/ffmpeg.rs
+index 54caa8c..5190bfb 100644
+--- a/crates/erika/src/ffmpeg.rs
++++ b/crates/erika/src/ffmpeg.rs
+@@ -4856,21 +4856,58 @@ unsafe extern "C" fn custom_avio_seek(opaque: *mut c_void, offset: i64, whence:
+     unsafe { (&mut *(opaque.cast::<CustomAvio>())).seek(offset, whence) }
+ }
+ 
++/// Probe-stage AVOptions for `avformat_open_input`: `probesize` and
++/// `analyzeduration` can be overridden through `ERIKA_PROBESIZE` /
++/// `ERIKA_ANALYZEDURATION` (microseconds). Both stay at FFmpeg's defaults when
++/// unset, so local playback is unchanged; hosts with slow network sources can
++/// bound how much data the synchronous open reads before Ready.
++fn probe_options() -> *mut sys::AVDictionary {
++    let mut options: *mut sys::AVDictionary = ptr::null_mut();
++    for (name, variable) in [
++        (c"probesize", "ERIKA_PROBESIZE"),
++        (c"analyzeduration", "ERIKA_ANALYZEDURATION"),
++    ] {
++        let Ok(value) = std::env::var(variable) else {
++            continue;
++        };
++        if value.is_empty() {
++            continue;
++        }
++        let Ok(value) = CString::new(value) else {
++            continue;
++        };
++        unsafe {
++            sys::av_dict_set(&mut options, name.as_ptr(), value.as_ptr(), 0);
++        }
++    }
++    options
++}
++
++fn free_probe_options(mut options: *mut sys::AVDictionary) {
++    if !options.is_null() {
++        unsafe { sys::av_dict_free(&mut options) };
++    }
++}
++
+ fn open_format_context(uri: &str) -> Result<FormatContext> {
+     install_ffmpeg_log_capture();
+     let input = CString::new(uri).map_err(|_| FfmpegError::InteriorNul)?;
+     let mut format_context = ptr::null_mut();
+-    check(
++    let mut options = probe_options();
++    let opened = check(
+         unsafe {
+             sys::avformat_open_input(
+                 &mut format_context,
+                 input.as_ptr(),
+                 ptr::null_mut(),
+-                ptr::null_mut(),
++                &mut options,
+             )
+         },
+         "avformat_open_input",
+-    )?;
++    );
++    // Entries the demuxer did not consume are still owned by the dictionary.
++    free_probe_options(options);
++    opened?;
+     FormatContext::new(format_context)
+ }
+ 
+diff --git a/crates/erika/src/playback.rs b/crates/erika/src/playback.rs
+index d07b2e4..16d2d71 100644
+--- a/crates/erika/src/playback.rs
++++ b/crates/erika/src/playback.rs
+@@ -803,9 +803,9 @@ impl OpenedMediaInfo {
+     }
+ }
+ 
+-struct DecodedVideoFrame {
++pub(crate) struct DecodedVideoFrame {
+     frame: Frame,
+-    decode_backend: DecoderBackend,
++    pub(crate) decode_backend: DecoderBackend,
+ }
+ 
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+@@ -839,7 +839,7 @@ impl MediaCodecSeekRoute {
+ }
+ 
+ impl DecodedVideoFrame {
+-    fn pts(&self) -> Option<ffmpeg::PacketTimestamp> {
++    pub(crate) fn pts(&self) -> Option<ffmpeg::PacketTimestamp> {
+         self.frame.pts()
+     }
+ }
+@@ -5028,6 +5028,15 @@ impl VideoPlaybackEngine {
+         self.session.take_video_decoder_events()
+     }
+ 
++    /// Pumps the demuxer and decodes the next video frame, if any. Used by the
++    /// player open path to wait for the first frame to decode at a seek target
++    /// before returning from `open(startPosition)`, so the first presented
++    /// frame is already available instead of being decoded lazily on the first
++    /// worker tick (which causes a black screen on network streams).
++    pub fn next_video_frame(&mut self) -> Result<Option<DecodedVideoFrame>> {
++        self.session.next_video_frame()
++    }
++
+     pub fn handle_video_frame_import_failure(
+         &mut self,
+         failure: &VideoFrameImportFailure,
+@@ -6063,6 +6072,16 @@ impl VideoPlaybackEngine {
+                     self.state,
+                 ));
+                 self.waiting_for_first_frame = false;
++                trace::diagnostic(
++                    serde_json::json!({
++                        "event": "first_frame_presented",
++                        "stage": "first_frame_presented",
++                        "framePtsMicros": pts.map(|p| p.as_micros() as u64),
++                        "mediaTimeMicros": self.media_time_at(now).as_micros() as u64,
++                        "seekTargetMicros": self.video_seek_floor.map(|t| t.as_micros() as u64),
++                    })
++                    .to_string(),
++                );
+             }
+ 
+             if self.buffering {
+diff --git a/xtask/src/main.rs b/xtask/src/main.rs
+index df9e56e..c124773 100644
+--- a/xtask/src/main.rs
++++ b/xtask/src/main.rs
+@@ -3997,6 +3997,12 @@ fn check_license_policy() -> Result<()> {
+ }
+ 
+ fn workspace_root() -> Result<PathBuf> {
++    // Local experiment: honour an explicit space-free root (e.g. a subst
++    // drive) because FFmpeg's configure wraps paths in single quotes, which
++    // cl.exe/lib.exe reject when the path contains spaces.
++    if let Some(root) = env::var_os("ERIKA_WORKSPACE_ROOT") {
++        return Ok(PathBuf::from(root));
++    }
+     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+     manifest_dir
+         .parent()

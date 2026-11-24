@@ -1,7 +1,5 @@
 name: Build iOS sideload (unsigned)
 
-# 只跑未签名 iOS IPA 的手动构建；与 build-win-ios-manual 分开，便于单独
-# 重试 macOS runner 排队。
 on:
   workflow_dispatch:
 
@@ -13,8 +11,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-erika-ios:
+    name: Build Erika iOS native lib from source
+    runs-on: macos-26
+    timeout-minutes: 120
+    outputs:
+      erika-artifact: ${{ steps.upload.outputs.artifact-name }}
+    steps:
+      - name: Checkout Erika source
+        uses: actions/checkout@v4
+        with:
+          repository: AimesSoft/liberika
+          ref: main
+          path: erika
+          fetch-depth: 1
+
+      - name: Apply Erika first-frame fix patch
+        shell: bash
+        run: |
+          cd erika
+          git apply ../nipaplay/.github/erika-first-frame-fix.patch || true
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Install Erika iOS native build deps
+        shell: bash
+        run: brew install nasm meson ninja pkg-config
+
+      - name: Build Erika iOS static lib
+        shell: bash
+        run: |
+          cd erika
+          cargo build --target aarch64-apple-ios --release -p erika_capi 2>&1 | tail -20
+
+      - name: Upload Erika iOS artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: erika-capi-ios-arm64
+          path: erika/target/aarch64-apple-ios/release/*.a
+          retention-days: 1
+
   build:
     name: Build unsigned iOS IPA
+    needs: build-erika-ios
     uses: ./.github/workflows/build-ios.yml
     with:
       upload-to-app-store: false

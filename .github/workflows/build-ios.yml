@@ -8,6 +8,11 @@ on:
         required: false
         default: false
         type: boolean
+      erika-force-source-build:
+        description: '是否从源码构建 Erika 原生库（而非使用预编译）'
+        required: false
+        default: false
+        type: boolean
     secrets:
       IOS_DISTRIBUTION_CERTIFICATE_BASE64:
         description: '包含 Apple Distribution 证书和私钥 of the P12 (Base64)'
@@ -64,7 +69,7 @@ jobs:
     env:
       FVP_DEPS_URL: https://github.com/wang-bin/mdk-sdk/releases/latest/download/
       FVP_DEPS_LATEST: 1
-      ERIKA_PREBUILT: "1"
+      ERIKA_PREBUILT: "${{ inputs.erika-force-source-build && '0' || '1' }}"
     steps:
       - name: Select Xcode version
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer

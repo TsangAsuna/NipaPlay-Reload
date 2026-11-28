@@ -12,8 +12,9 @@ concurrency:
 
 jobs:
   build:
-    name: Build unsigned iOS IPA
+    name: Build unsigned iOS IPA (Erika first-frame from source)
     uses: ./.github/workflows/build-ios.yml
     with:
       upload-to-app-store: false
+      erika-force-source-build: true
     secrets: inherit

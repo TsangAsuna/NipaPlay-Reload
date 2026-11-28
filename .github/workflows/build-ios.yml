@@ -8,6 +8,11 @@ on:
         required: false
         default: false
         type: boolean
+      erika-force-source-build:
+        description: '是否从打了首帧等待补丁的 liberika 源码构建 iOS 原生库（而非下载上游预编译包）'
+        required: false
+        default: false
+        type: boolean
     secrets:
       IOS_DISTRIBUTION_CERTIFICATE_BASE64:
         description: '包含 Apple Distribution 证书和私钥 of the P12 (Base64)'
@@ -51,7 +56,9 @@ jobs:
   build:
     name: Build iOS IPA
     runs-on: macos-26
-    timeout-minutes: 150
+    # 源码构建首跑要现编 ffmpeg/dav1d/libass 等第三方依赖（xtask deps build），
+    # 约 60-100 分钟；缓存命中后大幅缩短。给足余量。
+    timeout-minutes: 300
     outputs:
       version: ${{ steps.setup.outputs.version }}
       artifact-name: release-iOS
@@ -61,7 +68,13 @@ jobs:
     env:
       FVP_DEPS_URL: https://github.com/wang-bin/mdk-sdk/releases/latest/download/
       FVP_DEPS_LATEST: 1
-      ERIKA_PREBUILT: "1"
+      ERIKA_PREBUILT: "${{ inputs.erika-force-source-build && '0' || '1' }}"
+      # erika_flutter iOS podspec 的源码编译分支只认 ERIKA_FORCE_SOURCE_BUILD
+      # （ERIKA_PREBUILT 对它无效）；编译还要求 ERIKA_REPO_ROOT 指向含
+      # crates/erika_capi 的 liberika 检出，否则硬报错。
+      ERIKA_FORCE_SOURCE_BUILD: "${{ inputs.erika-force-source-build && '1' || '0' }}"
+      ERIKA_REPO_ROOT: "${{ github.workspace }}/.erika-src"
+      ERIKA_NATIVE_PROFILE: lgpl
     steps:
       - name: Select Xcode version
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
@@ -127,6 +140,23 @@ jobs:
         shell: bash
         run: brew install nasm meson ninja pkg-config
 
+      - name: Prepare patched Erika source checkout
+        if: inputs.erika-force-source-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 打首帧等待补丁的 liberika 检出，供 podspec 的源码编译分支使用。
+          # 只浅取补丁基线（liberika@787f7411），再用 git apply 叠加补丁，
+          # 保证产出的原生库 = 上游基线 + 首帧等待修复，与本地验证一致。
+          rm -rf "$GITHUB_WORKSPACE/.erika-src"
+          git init --quiet "$GITHUB_WORKSPACE/.erika-src"
+          git -C "$GITHUB_WORKSPACE/.erika-src" remote add origin https://github.com/AimesSoft/liberika.git
+          git -C "$GITHUB_WORKSPACE/.erika-src" fetch --quiet --depth 1 origin 787f7411e1995baebfb9b2e956ce72e7148c170a
+          git -C "$GITHUB_WORKSPACE/.erika-src" checkout --quiet --detach FETCH_HEAD
+          git -C "$GITHUB_WORKSPACE/.erika-src" apply --whitespace=nowarn "$GITHUB_WORKSPACE/.github/erika-first-frame-fix.patch"
+          test -f "$GITHUB_WORKSPACE/.erika-src/crates/erika_capi/Cargo.toml"
+          echo "已检出 liberika $(git -C "$GITHUB_WORKSPACE/.erika-src" rev-parse --short HEAD) 并应用首帧补丁"
+
       - name: Cache Erika iOS native dependencies
         if: env.ERIKA_PREBUILT != '1' || env.ERIKA_FORCE_SOURCE_BUILD == '1'
         uses: actions/cache@v4
@@ -134,10 +164,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.pub-cache/git/Erika-*/third_party/cache
-            ~/.pub-cache/git/Erika-*/third_party/build
-            ~/.pub-cache/git/Erika-*/third_party/dist
-          key: ios-erika-native-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}-v1
+            .erika-src/third_party/cache
+            .erika-src/third_party/build
+            .erika-src/third_party/dist
+          key: ios-erika-native-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}-${{ hashFiles('.github/erika-first-frame-fix.patch') }}-v1
 
       - name: Generate build info json
         shell: bash

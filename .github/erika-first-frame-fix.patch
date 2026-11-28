@@ -1,8 +1,17 @@
 diff --git a/crates/erika/src/core.rs b/crates/erika/src/core.rs
-index 7b33e4c..426d278 100644
+index 7b33e4c..9030dda 100644
 --- a/crates/erika/src/core.rs
 +++ b/crates/erika/src/core.rs
-@@ -1652,51 +1652,158 @@ impl Player {
+@@ -13,7 +13,7 @@ use crate::ffmpeg::{DecoderBackend, Frame, PcmAudioFrame};
+ use crate::overlay::OverlayFrame;
+ use crate::playback::{
+     PlaybackClock, PlaybackClockSource, PlaybackDecoderResources, PlaybackRunState,
+-    PlaybackSessionConfig, VideoPlaybackEngine,
++    PlaybackSessionConfig, VideoPlaybackEngine, OPEN_FIRST_FRAME_RECOVERY_FLUSH_AFTER,
+ };
+ use crate::renderer::VideoFramePayload;
+ use crate::subtitle::{DecodedSubtitleFrame, SubtitleTrackConfig};
+@@ -1652,51 +1652,192 @@ impl Player {
              self.emit(PlayerEvent::BufferingChanged(false));
              epoch
          };
@@ -107,6 +116,12 @@ index 7b33e4c..426d278 100644
 +            let decode_started = Instant::now();
 +            let decode_timeout = Duration::from_secs(10);
 +            let mut first_frame_decoded = false;
++            // The iPadOS VT×HEVC regression: the pump produced zero frames for
++            // 10s while the worker's post-seek recovery (flush + keyframe gate)
++            // restored output in ~200ms. Give the decoder a short window, then
++            // run the same recovery inline instead of waiting out the clock.
++            let mut recovery_flushed = false;
++            let mut last_progress_log = Duration::ZERO;
 +            while decode_started.elapsed() < decode_timeout {
 +                if cold_open_cancellation
 +                    .as_ref()
@@ -122,6 +137,34 @@ index 7b33e4c..426d278 100644
 -                    .expect("player lifecycle mutex poisoned");
 -                if lifecycle.epoch != epoch {
 -                    return Err(self.superseded_open_error());
++                if !recovery_flushed
++                    && decode_started.elapsed() >= OPEN_FIRST_FRAME_RECOVERY_FLUSH_AFTER
++                {
++                    engine.recover_video_decoder_for_open();
++                    recovery_flushed = true;
++                }
++                if decode_started.elapsed() - last_progress_log >= Duration::from_secs(1) {
++                    last_progress_log = decode_started.elapsed();
++                    let snapshot = engine.open_wait_diagnostics();
++                    trace::diagnostic(
++                        serde_json::json!({
++                            "event": "first_frame_wait_progress",
++                            "stage": "progress",
++                            "elapsedMs": decode_started.elapsed().as_millis() as u64,
++                            "demuxPacketsRead": snapshot.demux_packets_read,
++                            "demuxEmptyPolls": snapshot.demux_empty_polls,
++                            "videoPacketsRouted": snapshot.video_packets_routed,
++                            "videoGateSkips": snapshot.video_gate_skips,
++                            "decoderSends": snapshot.decoder_sends,
++                            "decoderFramesReceived": snapshot.decoder_frames_received,
++                            "framesQueued": snapshot.frames_queued,
++                            "gateArmed": snapshot.gate_armed,
++                            "lastVideoPacketIsKey": snapshot.last_video_packet_is_key,
++                            "lastVideoPacketPtsMicros": snapshot.last_video_packet_pts_micros,
++                        })
++                        .to_string(),
++                    );
++                }
 +                match engine.next_video_frame() {
 +                    Ok(Some(frame)) => {
 +                        let pts = frame.pts().and_then(|pts| pts.as_duration());
@@ -285,10 +328,47 @@ index 54caa8c..f3d79b4 100644
          Err(error) => {
              if !opened_context.is_null() {
 diff --git a/crates/erika/src/playback.rs b/crates/erika/src/playback.rs
-index d07b2e4..16d2d71 100644
+index d07b2e4..115a66f 100644
 --- a/crates/erika/src/playback.rs
 +++ b/crates/erika/src/playback.rs
-@@ -803,9 +803,9 @@ impl OpenedMediaInfo {
+@@ -104,11 +104,36 @@ const SEEK_PREROLL_DECODE_TIME_BUDGET: Duration = Duration::from_millis(5);
+ const SEEK_PREROLL_LOG_INTERVAL: Duration = Duration::from_millis(500);
+ const VIDEO_PUMP_PACKET_BUDGET: usize = 64;
+ const VIDEO_PUMP_TIME_BUDGET: Duration = Duration::from_millis(5);
++/// The synchronous open() first-frame wait gives the decoder a short window
++/// before forcing a worker-style recovery (flush + keyframe-gate re-arm).
++/// The iPadOS VT×HEVC regression recovered in ~200ms once the worker's
++/// recovery ran, so 800ms is generous while keeping open() bounded.
++pub(crate) const OPEN_FIRST_FRAME_RECOVERY_FLUSH_AFTER: Duration = Duration::from_millis(800);
+ const AUDIO_SEEK_INVALID_PACKET_LIMIT: usize = 64;
+ const DECODER_EOF_DRAIN_STALL_TIMEOUT: Duration = Duration::from_secs(2);
+ const DECODER_INPUT_STALL_TIMEOUT: Duration = Duration::from_secs(2);
+ const AUDIO_EOF_OUTPUT_STALL_TIMEOUT: Duration = Duration::from_secs(10);
+ 
++/// Counters observed while the synchronous open() wait pumps toward the
++/// first frame. Surfaced through the diagnostics ring so a device-side
++/// stall (packets never arriving vs decoder silently returning nothing)
++/// is distinguishable from a log file alone.
++#[derive(Debug, Default, Clone)]
++pub struct OpenWaitDiagnostics {
++    pub demux_packets_read: u64,
++    pub demux_empty_polls: u64,
++    pub video_packets_routed: u64,
++    pub video_key_packets_seen: u64,
++    pub video_gate_skips: u64,
++    pub decoder_sends: u64,
++    pub decoder_frames_received: u64,
++    pub last_video_packet_is_key: Option<bool>,
++    pub last_video_packet_pts_micros: Option<i64>,
++    pub last_video_packet_size: Option<usize>,
++    pub frames_queued: usize,
++    pub gate_armed: bool,
++}
++
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ struct PlaybackQueueLimits {
+     video_frames: usize,
+@@ -803,9 +828,9 @@ impl OpenedMediaInfo {
      }
  }
  
@@ -300,7 +380,7 @@ index d07b2e4..16d2d71 100644
  }
  
  #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-@@ -839,7 +839,7 @@ impl MediaCodecSeekRoute {
+@@ -839,7 +864,7 @@ impl MediaCodecSeekRoute {
  }
  
  impl DecodedVideoFrame {
@@ -309,7 +389,141 @@ index d07b2e4..16d2d71 100644
          self.frame.pts()
      }
  }
-@@ -5028,6 +5028,15 @@ impl VideoPlaybackEngine {
+@@ -874,6 +899,11 @@ pub struct PlaybackSession {
+     subtitle_backfill_catch_up: Option<Duration>,
+     pending_video_packets: VecDeque<ffmpeg::Packet>,
+     video_fallback_waiting_for_keyframe: bool,
++    /// Counters for the synchronous open() first-frame wait. The iPadOS VT×
++    /// HEVC regression showed the wait pumping for 10s with zero decoder
++    /// output while the worker's preroll recovered in ~200ms; these counters
++    /// make that asymmetry visible in the diagnostics ring.
++    open_wait_diag: OpenWaitDiagnostics,
+     audio_seek_waiting_for_valid_packet: bool,
+     audio_seek_dropped_packets: usize,
+     mediacodec_surface_disabled: bool,
+@@ -1434,6 +1464,7 @@ impl PlaybackSession {
+             subtitle_backfill_catch_up: None,
+             pending_video_packets: VecDeque::new(),
+             video_fallback_waiting_for_keyframe: false,
++            open_wait_diag: OpenWaitDiagnostics::default(),
+             audio_seek_waiting_for_valid_packet: false,
+             audio_seek_dropped_packets: 0,
+             mediacodec_surface_disabled,
+@@ -1697,6 +1728,40 @@ impl PlaybackSession {
+         Ok(self.video_frames.pop_front())
+     }
+ 
++    pub fn open_wait_diagnostics(&self) -> OpenWaitDiagnostics {
++        let mut snapshot = self.open_wait_diag.clone();
++        snapshot.frames_queued = self.video_frames.len();
++        snapshot.gate_armed = self.video_fallback_waiting_for_keyframe;
++        snapshot
++    }
++
++    /// Worker-style recovery for the open() first-frame wait: flush the video
++    /// decoder and re-arm the keyframe gate so the next key packet restarts
++    /// decoding from a clean decoder state. Mirrors the playback worker's
++    /// post-seek recovery, which on iPadOS VT×HEVC restored output in ~200ms
++    /// while the open() pump had produced nothing for 10s.
++    pub fn recover_video_decoder_for_open(&mut self) {
++        if let Some(decoder) = self.video_decoder.as_mut() {
++            decoder.flush();
++        }
++        self.video_fallback_waiting_for_keyframe = self.video_decoder.is_some();
++        let snapshot = self.open_wait_diagnostics();
++        trace::diagnostic(
++            serde_json::json!({
++                "event": "first_frame_open_recovery",
++                "stage": "decoder_flush",
++                "backend": self.active_video_decoder_backend().map(DecoderBackend::as_str),
++                "demuxPacketsRead": snapshot.demux_packets_read,
++                "videoPacketsRouted": snapshot.video_packets_routed,
++                "videoGateSkips": snapshot.video_gate_skips,
++                "decoderSends": snapshot.decoder_sends,
++                "decoderFramesReceived": snapshot.decoder_frames_received,
++                "lastVideoPacketIsKey": snapshot.last_video_packet_is_key,
++            })
++            .to_string(),
++        );
++    }
++
+     pub fn next_audio_frame(&mut self) -> Result<Option<PcmAudioFrame>> {
+         if self.audio_decoder.is_none() {
+             return Ok(None);
+@@ -2660,6 +2725,8 @@ impl PlaybackSession {
+         }
+         match self.demuxer.poll()? {
+             PumpInput::Packet(packet) => {
++                self.open_wait_diag.demux_packets_read =
++                    self.open_wait_diag.demux_packets_read.saturating_add(1);
+                 self.route_packet(packet, demand)?;
+                 Ok(true)
+             }
+@@ -2668,7 +2735,11 @@ impl PlaybackSession {
+                 let _ = self.finish_decoders(demand)?;
+                 Ok(true)
+             }
+-            PumpInput::Empty => Ok(false),
++            PumpInput::Empty => {
++                self.open_wait_diag.demux_empty_polls =
++                    self.open_wait_diag.demux_empty_polls.saturating_add(1);
++                Ok(false)
++            }
+         }
+     }
+ 
+@@ -2681,6 +2752,17 @@ impl PlaybackSession {
+             if self.video_decode_suspended {
+                 return Ok(());
+             }
++            self.open_wait_diag.video_packets_routed =
++                self.open_wait_diag.video_packets_routed.saturating_add(1);
++            self.open_wait_diag.last_video_packet_is_key = Some(packet.is_key());
++            self.open_wait_diag.last_video_packet_pts_micros = Some(
++                packet
++                    .pts()
++                    .and_then(|pts| pts.as_duration())
++                    .map(|duration| duration.as_micros() as i64)
++                    .unwrap_or(-1),
++            );
++            self.open_wait_diag.last_video_packet_size = Some(packet.size());
+             let packet_bytes = packet.size();
+             let scan_started = (demand == PlaybackPumpDemand::BufferingAudio).then(Instant::now);
+             // Once a packet is pending, preserve decode order while an audio
+@@ -2926,9 +3008,13 @@ impl PlaybackSession {
+     ) -> Result<bool> {
+         if self.video_fallback_waiting_for_keyframe {
+             if !packet.is_key() {
++                self.open_wait_diag.video_gate_skips =
++                    self.open_wait_diag.video_gate_skips.saturating_add(1);
+                 return Ok(true);
+             }
+             self.video_fallback_waiting_for_keyframe = false;
++            self.open_wait_diag.video_key_packets_seen =
++                self.open_wait_diag.video_key_packets_seen.saturating_add(1);
+             let active_backend = self
+                 .active_video_decoder_backend()
+                 .unwrap_or(DecoderBackend::Software);
+@@ -3043,6 +3129,7 @@ impl PlaybackSession {
+         packet: &ffmpeg::Packet,
+         demand: PlaybackPumpDemand,
+     ) -> Result<Option<bool>> {
++        self.open_wait_diag.decoder_sends = self.open_wait_diag.decoder_sends.saturating_add(1);
+         let send_result = self
+             .video_decoder
+             .as_mut()
+@@ -3087,6 +3174,10 @@ impl PlaybackSession {
+         // then failed: the fallback below starts from the backend in use.
+         self.observe_video_decoder_route();
+         let status = status?;
++        self.open_wait_diag.decoder_frames_received = self
++            .open_wait_diag
++            .decoder_frames_received
++            .saturating_add(status.frames as u64);
+         let video_frame_limit = self.active_video_frame_queue_limit();
+         if demand != PlaybackPumpDemand::BufferingAudio {
+             trim_video_queue(&mut self.video_frames, video_frame_limit);
+@@ -5028,6 +5119,29 @@ impl VideoPlaybackEngine {
          self.session.take_video_decoder_events()
      }
  
@@ -322,10 +536,24 @@ index d07b2e4..16d2d71 100644
 +        self.session.next_video_frame()
 +    }
 +
++    /// Snapshot of the open() first-frame wait counters (packets read, decoder
++    /// sends, frames received, keyframe-gate activity). Diagnostics only.
++    pub fn open_wait_diagnostics(&self) -> OpenWaitDiagnostics {
++        self.session.open_wait_diagnostics()
++    }
++
++    /// Worker-style recovery for the open() first-frame wait: flush the video
++    /// decoder and re-arm the keyframe gate so the next key packet restarts
++    /// decoding. Mirrors what the playback worker does after a seek, which on
++    /// iPadOS VT×HEVC recovered in ~200ms while the pump produced nothing.
++    pub fn recover_video_decoder_for_open(&mut self) {
++        self.session.recover_video_decoder_for_open()
++    }
++
      pub fn handle_video_frame_import_failure(
          &mut self,
          failure: &VideoFrameImportFailure,
-@@ -6063,6 +6072,16 @@ impl VideoPlaybackEngine {
+@@ -6063,6 +6177,16 @@ impl VideoPlaybackEngine {
                      self.state,
                  ));
                  self.waiting_for_first_frame = false;

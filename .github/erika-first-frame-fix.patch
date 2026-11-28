@@ -570,6 +570,132 @@ index d07b2e4..115a66f 100644
              }
  
              if self.buffering {
+diff --git a/crates/erika/src/source.rs b/crates/erika/src/source.rs
+index 8a7703b..a403de6 100644
+--- a/crates/erika/src/source.rs
++++ b/crates/erika/src/source.rs
+@@ -1263,8 +1263,13 @@ fn open_stream_response_with_identity(
+     identity: Option<Arc<str>>,
+ ) -> Result<StreamOpened> {
+     validate_resume_validator(validator.as_deref())?;
++    // Keep the header inside the origin's Int32 range parsing (see
++    // HTTP_ORIGIN_INT32_LIMIT). An offset past the limit is served by an
++    // open-ended stream anchored just below it; the worker skips the body
++    // prefix so stripes still start at `offset`.
++    let header_offset = offset.min(HTTP_ORIGIN_SAFE_OPEN_ANCHOR);
+     let range = ByteRange {
+-        start: offset,
++        start: header_offset,
+         length: None,
+     };
+     let mut request = io
+@@ -1302,12 +1307,12 @@ fn open_stream_response_with_identity(
+                 .and_then(|value| value.to_str().ok())
+                 .map(str::to_string);
+             if let Some(start) = content_range.as_deref().and_then(parse_content_range_start) {
+-                if start != offset {
++                if start != header_offset {
+                     return Err(SourceError::HttpRangeVerification(format!(
+-                        "stream served from {start}, expected {offset}"
++                        "stream served from {start}, expected {header_offset}"
+                     )));
+                 }
+-            } else if offset > 0 {
++            } else if header_offset > 0 {
+                 // Without Content-Range a resumed stream cannot prove it is
+                 // answering from the requested offset.
+                 return Err(SourceError::HttpRangeVerification(
+@@ -1317,7 +1322,7 @@ fn open_stream_response_with_identity(
+             }
+             Ok(StreamOpened::Body {
+                 response,
+-                skip_bytes: 0,
++                skip_bytes: offset - header_offset,
+             })
+         }
+         status @ (429 | 503) => stream_retry_after(&response)
+@@ -1997,6 +2002,17 @@ impl Default for HttpFetchTimeouts {
+ /// requests or by the persistent stream worker.
+ const HTTP_REQUEST_MAX_BYTES: u64 = 4 * 1024 * 1024;
+ 
++/// Some origins parse every bound of a Range request as Int32 and answer 500
++/// for any header carrying a number >= 2^31 (observed: the dandanplay Acplay
++/// streamer, `System.OverflowException` in `PartialContentResponse..ctor`).
++/// Verified against that origin: bounded requests stay servable while both
++/// bounds fit Int32, `bytes=<2^31-1>-` streams to end of file at full speed,
++/// and suffix ranges always fail. Data past the limit is therefore fetched
++/// through an open-ended stream anchored just below the limit, skipping the
++/// body prefix before the wanted offset.
++const HTTP_ORIGIN_INT32_LIMIT: u64 = 2_147_483_647;
++const HTTP_ORIGIN_SAFE_OPEN_ANCHOR: u64 = 2_147_483_600;
++
+ /// How close to the end of the resource an empty read may fall and still
+ /// count as reaching the end instead of a fetch failure (issue #163).
+ ///
+@@ -2640,7 +2656,23 @@ async fn fetch_http_range_with_history_async(
+             start: range.start.saturating_add(received),
+             length: range.length.map(|length| length.saturating_sub(received)),
+         };
+-        let header = http_range_header(resume_range);
++        // Keep every header number inside the origin's Int32 range parsing
++        // (see HTTP_ORIGIN_INT32_LIMIT): a wanted start past the limit is
++        // served by an open-ended stream anchored just below it, with the
++        // body prefix skipped before the first accounted byte; a bounded
++        // request whose end crosses the limit becomes open-ended from its
++        // own (still representable) start.
++        let mut header_range = resume_range;
++        if header_range.start > HTTP_ORIGIN_SAFE_OPEN_ANCHOR {
++            header_range.start = HTTP_ORIGIN_SAFE_OPEN_ANCHOR;
++            header_range.length = None;
++        } else if header_range
++            .length
++            .is_some_and(|length| header_range.start + length > HTTP_ORIGIN_INT32_LIMIT)
++        {
++            header_range.length = None;
++        }
++        let header = http_range_header(header_range);
+         let started = Instant::now();
+         let mut request = client.get(uri).header("Range", &header);
+         for (name, value) in http_headers {
+@@ -2734,17 +2766,17 @@ async fn fetch_http_range_with_history_async(
+                     .and_then(|value| value.to_str().ok())
+                     .map(str::to_string);
+                 if let Some(start) = content_range.as_deref().and_then(parse_content_range_start) {
+-                    if start != resume_range.start {
++                    if start != header_range.start {
+                         http_trace_log(format!(
+                             "{{\"event\":\"{}_error\",\"phase\":\"content_range\",\"attempt\":{},\"start\":{},\"served_start\":{}}}",
+-                            event, attempt, resume_range.start, start,
++                            event, attempt, header_range.start, start,
+                         ));
+                         return Err(SourceError::HttpRangeVerification(format!(
+                             "server served range from {start}, expected {}",
+-                            resume_range.start
++                            header_range.start
+                         )));
+                     }
+-                } else if resume_range.start > 0 {
++                } else if header_range.start > 0 {
+                     // A 206 without Content-Range cannot be position-verified,
+                     // and a spliced answer would be silent cache corruption;
+                     // only offset 0 is unambiguous, so lenient servers keep
+@@ -2796,7 +2828,15 @@ async fn fetch_http_range_with_history_async(
+             .filter(|value| self::strong_etag(value.as_bytes()).is_some())
+             .map(str::to_owned);
+         let mut entity_mismatch = false;
+-        let mut skip_remaining = if status == 200 { resume_range.start } else { 0 };
++        let mut skip_remaining = if status == 200 {
++            resume_range.start
++        } else if header_range.start < resume_range.start {
++            // Origin-safe anchored stream: discard the body prefix between
++            // the anchor and the wanted offset.
++            resume_range.start - header_range.start
++        } else {
++            0
++        };
+         let mut response_bytes = 0u64;
+         let mut reached_eof = false;
+         let body_result: std::result::Result<(), HttpRequestError> = async {
 diff --git a/xtask/src/main.rs b/xtask/src/main.rs
 index df9e56e..c124773 100644
 --- a/xtask/src/main.rs

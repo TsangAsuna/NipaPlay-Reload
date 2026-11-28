@@ -975,9 +975,56 @@ class ErikaPlayerAdapter
         _lastPositionUpdate = DateTime.now();
       }
       debugPrint('[Erika] open(startPosition=$start) taken=$_startPositionTaken');
+      // 续播诊断：open 返回后立即 dump 原生日志环（open_start →
+      // media_open_complete → seek_requested → seek_completed →
+      // first_frame_decoded → first_frame_presented 全在里面），用于
+      // 定位 iOS VT×HEVC 首帧 ~10s 卡在哪一段。只读环，不改行为。
+      unawaited(_dumpNativeResumeRing(start));
     }
     _subtitleTrace('prepare open complete media=$_media startTaken=$_startPositionTaken');
     _state = PlayerPlaybackState.paused;
+  }
+
+  /// Dumps liberika's native log ring (resume-relevant entries) into the
+  /// Dart log. Read-only; failures are swallowed — diagnostics must never
+  /// break playback.
+  Future<void> _dumpNativeResumeRing(int startMs) async {
+    try {
+      final response = await _player.getLogs(limit: 120, minLevel: 'trace');
+      final entries = response['entries'];
+      if (entries is! List) return;
+      debugPrint('[ErikaRing] === resume ring after open(start=$startMs) ===');
+      for (final entry in entries) {
+        if (entry is! Map) {
+          debugPrint('[ErikaRing] $entry');
+          continue;
+        }
+        final unixMs = entry['unixMs'];
+        final data = entry['data'];
+        if (data is Map) {
+          // Structured diagnostics: event/stage + a compact tail of payload
+          // fields (uri/positions/backend/reason) on one line.
+          final rest = <String>[];
+          data.forEach((key, value) {
+            if (key != 'event' && key != 'stage') {
+              rest.add('$key=$value');
+            }
+          });
+          debugPrint(
+            '[ErikaRing][$unixMs] ${data['event']} stage=${data['stage']}'
+            '${rest.isEmpty ? '' : ' ${rest.join(' ')}'}',
+          );
+        } else {
+          final message = entry['message'] ?? '';
+          if (message is String && message.isNotEmpty) {
+            debugPrint('[ErikaRing][$unixMs] ${entry['source']} $message');
+          }
+        }
+      }
+      debugPrint('[ErikaRing] === end resume ring ===');
+    } catch (error) {
+      debugPrint('[ErikaRing] dump failed: $error');
+    }
   }
 
   @override

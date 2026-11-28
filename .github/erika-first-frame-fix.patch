@@ -194,7 +194,7 @@ index 7b33e4c..426d278 100644
              self.finish_cancelled_cold_open(epoch);
              return Err(self.superseded_open_error());
 diff --git a/crates/erika/src/ffmpeg.rs b/crates/erika/src/ffmpeg.rs
-index 54caa8c..5190bfb 100644
+index 54caa8c..f3d79b4 100644
 --- a/crates/erika/src/ffmpeg.rs
 +++ b/crates/erika/src/ffmpeg.rs
 @@ -4856,21 +4856,58 @@ unsafe extern "C" fn custom_avio_seek(opaque: *mut c_void, offset: i64, whence:
@@ -259,6 +259,31 @@ index 54caa8c..5190bfb 100644
      FormatContext::new(format_context)
  }
  
+@@ -4888,17 +4925,21 @@ fn open_source_format_context(source: Box<dyn MediaSource>) -> Result<FormatCont
+     }
+ 
+     let mut opened_context = format_context;
+-    match check(
++    let mut options = probe_options();
++    let opened = check(
+         unsafe {
+             sys::avformat_open_input(
+                 &mut opened_context,
+                 uri.as_ptr(),
+                 ptr::null_mut(),
+-                ptr::null_mut(),
++                &mut options,
+             )
+         },
+         "avformat_open_input(custom_io)",
+-    ) {
++    );
++    // Entries the demuxer did not consume are still owned by the dictionary.
++    free_probe_options(options);
++    match opened {
+         Ok(()) => FormatContext::new_with_custom_io(opened_context, avio),
+         Err(error) => {
+             if !opened_context.is_null() {
 diff --git a/crates/erika/src/playback.rs b/crates/erika/src/playback.rs
 index d07b2e4..16d2d71 100644
 --- a/crates/erika/src/playback.rs
